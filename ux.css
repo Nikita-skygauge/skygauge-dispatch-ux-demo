@@ -43,3 +43,14 @@ dialog{width:min(500px,calc(100% - 28px));padding:32px;border:1px solid var(--li
  #bar h1{display:block!important}.tbl{min-width:0!important;display:block;border:0!important}.tbl thead{display:none}.tbl tbody{display:block}.tbl tr{display:grid;grid-template-columns:1fr auto;padding:10px 0;border-top:1px solid var(--line);gap:0 12px}.tbl td{display:block;border:0;height:auto;max-width:none}.tbl td:first-child{grid-column:1/-1}.tbl td:last-child{display:none}.tbl .cell{padding:5px 0;min-height:0}.tbl .tt .cell{font-size:14px;padding-bottom:9px}.tbl .id{font-size:10px}.tbl td:not(:first-child) .cell{font-size:12px}.tbl{border-radius:0!important}
  body.job-page #peek .ph{flex-wrap:nowrap}body.job-page #peek .ph .id{width:auto;font-size:9px;white-space:nowrap}body.job-page .trow{flex-wrap:wrap;gap:4px}body.job-page .trow .ptitle{flex:0 0 100%;font-size:25px!important}body.job-page .trow [data-status]{margin-top:0}body.job-page .prop{grid-template-columns:110px 1fr;min-height:39px}body.job-page #peek .ph{touch-action:auto}
 }
+
+/* Make the selected job's relationship to the map explicit. */
+#mode.wo .mode-txt{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:7px 12px;min-width:0}
+.map-job-label{display:block;flex:1 1 100%;line-height:1.5;font-weight:600;color:var(--ink)}
+.map-job-label b{margin-right:7px;font-size:11px}
+.map-job-help{flex:1 1 220px;font-size:11px;line-height:1.5;color:var(--ink-2)}
+.sample-location-note{font-size:11px;color:var(--ink-3);line-height:1.5;margin:7px 0 18px}
+.unmapped-job{display:block;font-size:10px;font-weight:400;color:var(--ink-3);margin-top:3px}
+#legend .legend-heading,#legend .legend-unmapped{cursor:default;color:var(--ink-3)}
+#legend .legend-unmapped{border-left:1px solid var(--line);padding-left:10px}
+@media(max-width:860px){#mode.wo .mode-tag{display:none}#mode.wo .mode-txt{gap:5px}#mode.wo{padding:8px 10px}.map-job-label{font-size:11px}.map-job-help{font-size:10px;flex-basis:180px}#map-job-action{font-size:10px;min-height:30px}.sample-location-note{font-size:10px}}

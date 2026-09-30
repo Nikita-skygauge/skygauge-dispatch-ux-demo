@@ -650,7 +650,7 @@ async function sendLink(){
 
 async function boot(){
   if(MOCK){
-    DB=trackDB(makeMock()); await seedDemo(); window.DB=DB; window.__migrate=()=>migrateToJobs();
+    DB=trackDB(makeMock()); await seedDemo(); await seedDemoLocations(); window.DB=DB; window.__migrate=()=>migrateToJobs();
     ST={ async upload(path,file,onProgress){ onProgress?.(1); const url=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(file); }); return { path, url }; }, async del(){ } };   // exposed for the headless test harness only
     AUTH={ google:async()=>{}, sendLink:async()=>{}, signOut:async()=>location.reload() };
     await enter({ uid:"mock-admin", email:ADMIN_EMAIL, displayName:"Nikita", emailVerified:true });
@@ -1174,6 +1174,7 @@ function renderRecord(){
   const filled=props().filter(p=>p.system||!isEmpty(w.values?.[p.id])), empty=props().filter(p=>!p.system&&!["owner","deadline","asset","worktype"].includes(p.id)&&isEmpty(w.values?.[p.id]));
   const rowHTML=p=>`<div class="prop" data-pid="${p.id}" draggable="true"><div class="pn" title="${P(p.name)} · ${TYPE_LABEL[p.type]}">${ico(p.type)}<span style="overflow:hidden;text-overflow:ellipsis">${P(p.name)}</span></div><div class="pv ${p.system?"ro":""}" data-edit="${p.id}" role="button" tabindex="0" aria-label="Edit ${P(p.name)}">${renderValue(p,w.values?.[p.id],w)}</div></div>`;
   const P0=pts(w);
+  $("#pk-fly").textContent=P0.length?"View on map":"Add location";
   const core=props().filter(p=>["owner","deadline","asset","worktype"].includes(p.id));
   const custom=filled.filter(p=>!p.system&&!core.includes(p));
   const areaTxt=P0.length?P(shapeLabel(locShape(w))+(locKindW(w)==="area"&&locHeight(w)>0?" · "+locHeight(w)+" m high":"")):"";
@@ -1182,11 +1183,12 @@ function renderRecord(){
     <div class="props core-props">${core.map(rowHTML).join("")}</div>
     <section class="scope-section"><h3>Scope of work</h3><textarea id="job-scope" aria-label="Scope of work" placeholder="What needs to be done? Include the context your team needs.">${P(w.scope||"")}</textarea></section>
     <div class="metaline">${P(w.createdBy?.name||"")} · ${P(fmtDate(w.created,true))}${w.edited?` · edited ${P(rel(w.edited))}`:""}${w.completedAt?` · completed ${P(fmtDate(w.completedAt,true))}`:""}</div>
-    ${editLoc!==w.id?`<div class="strip"><span class="lab">Job area</span><span class="val">${P0.length?areaTxt:`<span class="hint">Add a location when you’re ready</span>`}</span>${P0.length?`<button class="btn sm teal" id="l-edit">Edit</button>`:`<button class="btn sm teal" id="l-add">＋ Mark job area</button>`}</div>`
+    ${editLoc!==w.id?`<div class="strip"><span class="lab">Job area</span><span class="val">${P0.length?(w.location?.demo?"Sample ":"")+areaTxt:`<span class="hint">No location yet</span>`}</span>${P0.length?`<button class="btn sm teal" id="l-edit">Edit</button>`:`<button class="btn sm teal" id="l-add">＋ Mark job area</button>`}</div>`
     :`<section class="ps"><h3 style="cursor:default">Job area <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0">${areaTxt}</span></h3><div class="locbox editing">
       ${P0.length?`<div class="ptlist">${P0.map((p,i)=>`<div class="ptrow ${V.draw?.sel===i?"sel":""}" data-i="${i}"><span class="ptn">${i+1}</span><span class="mono">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span><button class="btn sm" data-mv="${i}" title="Click the model to move this point">Move</button><button class="btn sm" data-rm="${i}" title="Remove this point">✕</button></div>`).join("")}</div>`:`<div class="hint">${isMobile()?"Tap":"Click"} the model: one point, more for a line, then point ① to close an area.</div>`}
       <div class="acts">${locKindW(w)==="area"?`<label class="hint" style="display:flex;align-items:center;gap:4px">Height <input class="in mono" id="l-h" type="number" min="0" value="${locHeight(w)}" style="width:64px;padding:2px 6px"> m <span class="hint">(0 = flat)</span></label>`:""}
       <button class="btn sm teal" id="l-done" style="margin-left:auto">Done</button></div></div></section>`}
+    ${w.location?.demo?`<p class="sample-location-note">Illustrative demo location · not a verified asset position.</p>`:""}
     <div class="addprop" id="toggle-details">${showDetails?"▾":"▸"} More properties${empty.length?` · ${empty.length} empty propert${empty.length===1?"y":"ies"}`:""}</div>
     ${showDetails?`<div class="props details">
       ${filled.filter(p=>!core.includes(p)).map(rowHTML).join("")}
@@ -1257,6 +1259,7 @@ function renderAll(){
   renderTree(); renderLegend(); regSummary();
   if(S.tab==="wo") renderViews(); if(S.tab==="inbox") renderInbox();
   if(S.open) renderRecord();
+  if(S.woView&&S.open&&!V.draw&&!V.placing) woMode();
 }
 function renderViews(){
   const rows=filtered(); $("#vcount").textContent=S.view==="trash"?`${trashed().length} in Trash`:`${rows.length} job${rows.length===1?"":"s"}`;
@@ -1321,7 +1324,7 @@ function renderTree(){
   const q=S.q.trim().toLowerCase();
   if(S.sub==="wo"){
     const rows=filtered();
-    $("#tree").innerHTML=["todo","progress","complete"].map(g=>{ const ws=rows.filter(w=>status(w.statusId)?.group===g); if(!ws.length) return ""; return `<div class="eyebrow" style="padding:8px 8px 2px">${GROUPS[g]} · ${ws.length}</div>${ws.map(w=>`<div class="it ${S.open===w.id?"sel":""}" data-wo="${w.id}"><span class="tag">${w.id.slice(-3)}</span><span class="n" title="${P(w.title)}">${P(w.title||"Untitled")}</span><i style="width:8px;height:8px;border-radius:50%;background:${col(status(w.statusId)?.color).map};flex:none"></i></div>`).join("")}`; }).join("")||`<div class="kempty">No jobs yet.<br><button class="link" id="tree-new">Create the first one</button></div>`;
+    $("#tree").innerHTML=["todo","progress","complete"].map(g=>{ const ws=rows.filter(w=>status(w.statusId)?.group===g); if(!ws.length) return ""; return `<div class="eyebrow" style="padding:8px 8px 2px">${GROUPS[g]} · ${ws.length}</div>${ws.map(w=>`<div class="it ${S.open===w.id?"sel":""}" role="button" tabindex="0" data-wo="${w.id}"><span class="tag">${w.id.slice(-3)}</span><span class="n" title="${P(w.title)}">${P(w.title||"Untitled")}${!pts(w).length?`<small class="unmapped-job">No location yet</small>`:""}</span><i style="width:8px;height:8px;border-radius:50%;background:${col(status(w.statusId)?.color).map};flex:none"></i></div>`).join("")}`; }).join("")||`<div class="kempty">No jobs yet.<br><button class="link" id="tree-new">Create the first one</button></div>`;
     $("#tree-new")?.addEventListener("click",()=>startCreate());
   } else {
     const as=S.assets.filter(a=>!q||(a.tag+" "+a.name).toLowerCase().includes(q));
@@ -1556,7 +1559,7 @@ async function initMap(){
   map.addEventListener("dblclick",()=>{ if(S.woView&&S.open&&!V.draw&&!V.placing){ const w=W(S.open); if(w) flyWO(w); } });
   $("#canvas-wrap").prepend(map); $("#loading").hidden=true; previewInit(); if(PARAMS.has("debug")) window.__projectLL=projectLL;
   $("#m-extent").textContent=`${(g.e.ns/1000).toFixed(1)} × ${(g.e.ew/1000).toFixed(1)} km`;
-  requestAnimationFrame(()=>{ drawSite(); syncOverlays(); syncPhotoOverlays(); });
+  requestAnimationFrame(()=>{ drawSite(); syncOverlays(); syncPhotoOverlays(); if(S.woView&&S.open) setTimeout(()=>{ const w=W(S.open); if(S.woView&&w) flyWO(w); },350); });
 }
 function applyCameraLimits(){ if(!map) return; const c=siteCam(); fly(c,1200); const g=siteGeom(); $("#m-extent").textContent=`${(g.e.ns/1000).toFixed(1)} × ${(g.e.ew/1000).toFixed(1)} km`; }
 function drawSite(){ if(!map) return; killEl(OV.site); const B=BOUNDARY(); const line=mk3("pl",{ altitudeMode:"CLAMP_TO_GROUND", strokeColor:"rgba(0,255,229,0.95)", strokeWidth:5, drawsOccludedSegments:true, path:[...B,B[0]].map(p=>({lat:p.lat,lng:p.lng,altitude:2})) }); OV.site=line; }
@@ -1577,18 +1580,18 @@ function addWOOverlay(w){
   o.m=mk3("mi",{ position:atSurf(kind==="area"?{ ...a, ground:minGround(P) }:a,topLift), altitudeMode:mode, extruded:kind==="point" });
   o.pin=pinTemplate(c,1.1,undefined,w.id.slice(-3)); setTpl(o.m,o.pin.tpl); o.m.__onClick=e=>{ if(V.draw||V.placing) return; e.stopPropagation?.(); enterWOView(w.id); };
   if(kind==="line"){ o.line=mk3("pl",{ altitudeMode:mode, strokeColor:`rgba(${rgb(c)},0.95)`, strokeWidth:5, drawsOccludedSegments:true, path:P.map(p=>atSurf(p,1)) }); }
-  if(kind==="area"){ o.area=mk3("pg",{ altitudeMode:mode, drawsOccludedSegments:true, fillColor:`rgba(${rgb(c)},0.28)`, strokeColor:`rgba(${rgb(c)},0.95)`, strokeWidth:2, path:[...P,P[0]].map(p=>atSurf(p,0.8)) });
+  if(kind==="area"){ o.area=mk3("pg",{ altitudeMode:mode, drawsOccludedSegments:true, fillColor:`rgba(${rgb(c)},0.28)`, strokeColor:`rgba(${rgb(c)},0.95)`, strokeWidth:4, path:[...P,P[0]].map(p=>atSurf(p,0.8)) });
     // height, when set, rises from the lowest corner's surface — an area on a roof grows from the roof
     if(h>0){ const g0=minGround(P); o.box=mk3("pg",{ altitudeMode:"ABSOLUTE", extruded:true, drawsOccludedSegments:false, fillColor:`rgba(${rgb(c)},0.18)`, strokeColor:`rgba(${rgb(c)},0.8)`, strokeWidth:1.5, path:[...P,P[0]].map(p=>({ lat:p.lat, lng:p.lng, altitude:g0+h })) }); } }
   OV.wo[w.id]=o; applyLegendTo(w); syncJobLabels();   // lengths / pin visibility follow the open state
 }
 /* segment lengths belong to the open job only: strip them from every other job, add them to the open one */
 function syncJobLabels(){ if(!map) return; Object.entries(OV.wo).forEach(([id,o])=>{ const open=S.woView&&S.open===id, on=open&&!S.note; const w=W(id); if(!on&&o.labels?.length){ killAll(o.labels); o.labels=[]; mapRedraw(); } if(on&&!(o.labels?.length)){ if(w&&locKindW(w)!=="point") o.labels=segmentLabels(pts(w),locKindW(w)==="area"); }
-  const hidePin=open&&w&&locKindW(w)!=="point"; if(hidePin&&!o.pinHidden&&o.m){ poolPut(o.m); o.m=null; o.pinHidden=true; } else if(!hidePin&&o.pinHidden){ o.pinHidden=false; if(w&&!w.trashed) refreshWOOverlay(w,true); } }); }
+  const hidePin=open&&w&&locKindW(w)!=="point"&&!!S.note; if(hidePin&&!o.pinHidden&&o.m){ poolPut(o.m); o.m=null; o.pinHidden=true; } else if(!hidePin&&o.pinHidden){ o.pinHidden=false; if(w&&!w.trashed) refreshWOOverlay(w,true); } }); }
 function minGround(P){ const g=P.map(p=>p.ground).filter(x=>x!=null); return g.length?Math.min(...g):GROUND_FALLBACK; }
 function refreshWOOverlay(w,force){ if(!map) return; const o=OV.wo[w.id]; if(!o){ if(!w.trashed) addWOOverlay(w); return; } if(w.trashed||force||o.sig!==JSON.stringify(w.location||{})){ killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); delete OV.wo[w.id]; mapRedraw(); if(!w.trashed) addWOOverlay(w); return; } const c=woColor(w); if(o.m) o.pin.setFill(c); if(o.area){ o.area.fillColor=`rgba(${rgb(c)},0.28)`; o.area.strokeColor=`rgba(${rgb(c)},0.95)`; } if(o.line) o.line.strokeColor=`rgba(${rgb(c)},0.95)`; applyLegendTo(w); }
 function applyLegendTo(w){ const o=OV.wo[w.id]; if(!o) return; const hide=S.legendOff.has(w.statusId); if(hide&&!o.hidden){ killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); o.hidden=true; mapRedraw(); } else if(!hide&&o.hidden){ delete OV.wo[w.id]; addWOOverlay(w); syncJobLabels(); } }   // legend off: parts are buried and dropped; back on: rebuilt
-function renderLegend(){ if(!S.schema) return; $("#legend").innerHTML=statuses().map(o=>`<span data-s="${o.id}" class="${S.legendOff.has(o.id)?"off":""}"><i style="background:${col(o.color).map}"></i>${P(o.name)} <span class="mono">${live().filter(w=>w.statusId===o.id).length}</span></span>`).join(""); }
+function renderLegend(){ if(!S.schema) return; const mapped=live().filter(w=>pts(w).length&&!w.draft); $("#legend").innerHTML=`<span class="legend-heading">On map</span>`+statuses().filter(o=>mapped.some(w=>w.statusId===o.id)).map(o=>`<span data-s="${o.id}" class="${S.legendOff.has(o.id)?"off":""}"><i style="background:${col(o.color).map}"></i>${P(o.name)} <span class="mono">${mapped.filter(w=>w.statusId===o.id).length}</span></span>`).join("")+`<span class="legend-unmapped">${live().filter(w=>!pts(w).length).length} without a location</span>`; }
 $("#legend").addEventListener("click",e=>{ const s=e.target.closest("[data-s]"); if(!s) return; S.legendOff.has(s.dataset.s)?S.legendOff.delete(s.dataset.s):S.legendOff.add(s.dataset.s); renderLegend(); live().forEach(applyLegendTo); });
 let flyTok=0; function onFlyEnd(fn){ const tok=++flyTok; const h=()=>{ map.removeEventListener("gmp-animationend",h); if(tok===flyTok) fn(); }; map.addEventListener("gmp-animationend",h); }
 function fly(cam,ms=1800){ if(!map) return; flying=true; map.flyCameraTo({ endCamera:cam, durationMillis:ms }); clearTimeout(flyT); flyT=setTimeout(()=>{ flying=false; },ms+150); onFlyEnd(()=>{ flying=false; }); }
@@ -1596,7 +1599,7 @@ const GROUND_FALLBACK=80; // m above sea level at the Dofasco works when a pin h
 function flyWO(w){ const P=pts(w); if(!P.length||!map) return;
   const a=locAnchor(w); const kind=locKindW(w); const ground=kind==="area"?minGround(P):(a.ground??GROUND_FALLBACK), alt=ground+(a.alt||0)+(kind==="area"?locHeight(w)/2+2:kind==="point"?6:2);
   const ext=P.length>=2?Math.max(extentM(bbox(P)).ns,extentM(bbox(P)).ew):0;
-  const r=P.length===1?110:Math.max(100,ext*1.8);
+  const r=P.length===1?150:Math.max(220,ext*3.2);
   const cam={ center:{lat:a.lat,lng:a.lng,altitude:alt}, range:r, tilt:62, heading:map.heading??-30 };
   flying=true; LOCK=S.woView?{ ...cam.center }:null; orbitSync(); map.flyCameraTo({ endCamera:cam, durationMillis:1600 });
   clearTimeout(flyT); const done=()=>{ flying=false; if(S.woView&&S.open===w.id){ const c=map.center; const off=c?Math.hypot((c.lat-cam.center.lat)*111320,(c.lng-cam.center.lng)*111320*Math.cos(cam.center.lat*Math.PI/180)):1e9; if(off>25||Math.abs((map.range||0)-cam.range)>cam.range*0.5){ map.center=cam.center; map.range=cam.range; map.tilt=cam.tilt; map.heading=cam.heading; } } orbitSync(); }; const tok0=flyTok+1; flyT=setTimeout(()=>{ if(tok0===flyTok) done(); },1750); onFlyEnd(done);
@@ -1779,14 +1782,16 @@ function assetEditor(a,anchor,opts={}){
    Google's gesture controller has no "fixed pivot" mode, so in this view a transparent layer over the map takes the
    input itself: drag → heading/tilt, wheel/pinch → range, centre never changes. Lifted while placing or drawing points. */
 let LOCK=null, flying=false, flyT=null;
-function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels();
+function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; S.legendOff.delete(w.statusId); applyLegendTo(w); renderLegend(); S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels();
   // fly only after the map has its final size: an animation started on a hidden or resizing map is dropped by the engine
-  if(map){ requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>flyWO(w), (isMobile()||wasHidden)?320:60))); } }
+  if(map){ requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{ if(S.woView&&S.open===w.id){ if(pts(w).length) flyWO(w); else applyCameraLimits(); } }, (isMobile()||wasHidden)?320:60))); } }
 function exitWOView(){ S.woView=false; LOCK=null; S.note=null; document.body.classList.remove("note-view"); leaveJobScene(); syncJobLabels(); document.body.classList.remove("wo-view"); closePeek(); resetMode(); orbitSync(); }   // camera stays where it is; the Site button reframes on demand
 function woMode(){ const w=W(S.open); if(!w) return;
   if(S.note&&typeof N==="function"&&N(S.note)){ const n=N(S.note); const par=n.parent?N(n.parent):null; const sibs=(typeof childrenOf==="function"?childrenOf(n.parent||null):[]).length;
     setMode("wo note","Note",`<b>${P(noteTitle(n))}</b> · ${par?`inside ${P(noteTitle(par))}`:`${noteNo(n.id)} of ${sibs||"?"} in ${w.id}`} <button class="btn sm" id="mode-back">‹ Back</button>`,false); $("#mode-back").onclick=()=>closeNote(true); return; }
-  setMode("wo","Job",isMobile()?`<b>${w.id}</b> · double-tap the map to re-centre`:`<b>${w.id}</b> · standard Google controls · double-click the map to re-centre`,false); }
+  const located=!!pts(w).length;
+  setMode("wo","Job",`<span class="map-job-label"><b>${w.id}</b> ${P(w.title||"Untitled")}</span><span class="map-job-help">${located?(w.location?.demo?"Illustrative demo location · not a verified asset position":"Highlighted location for this job"):"No location yet — this job has no pin or area on the map."}</span><button class="btn sm teal" id="map-job-action">${located?"Re-centre on job":"＋ Add location"}</button>`,false);
+  $("#map-job-action").onclick=()=>{ if(located) flyWO(w); else { editLoc=w.id; addPoints(w.id); renderRecord(); } }; }
 function orbitSync(){ $("#orbit").hidden=true; }   // stock Google 3D gestures everywhere; no custom control layer
 function installLock(){ return;
   const el=$("#orbit"); const ptrs=new Map(); let last=null, pinch0=null, range0=0;
@@ -2477,6 +2482,24 @@ async function seedDemo(){
   await DB.set(MAIL_COL+"/demo-thread",{jobId,n:1,addr:jobId.toLowerCase()+"-t1@"+MAIL_DOMAIN,subject:"Access window confirmed",about:{kind:"job"},participants:[members[0],members[1]],created:time,createdBy:members[1],last:{t:time,from:members[1],snippet:"The access window is confirmed. Please check in at reception."},count:1,readBy:{}});
   await DB.set(MAIL_COL+"/demo-thread/messages/demo-message",{dir:"in",from:members[1],to:[members[0]],cc:[],t:time,subject:"Access window confirmed",text:"The access window is confirmed. Please check in at reception and bring the agreed inspection plan.",attachments:[],status:"received",extracted:{po:[]}});
   await DB.set("demo/seed",{version:1});
+}
+
+/* Illustrative shapes inside the original public demo boundary, not surveyed asset coordinates.
+   Upgrade older demos once without resetting jobs, notes, map credentials, or existing geometry. */
+async function seedDemoLocations(){
+  if(await DB.get("demo/mapLocations")) return;
+  const samples={
+    41:{title:"North stack · UT thickness survey",points:[{lat:43.2756,lng:-79.8027},{lat:43.2756,lng:-79.8019},{lat:43.2750,lng:-79.8019},{lat:43.2750,lng:-79.8027}],closed:true},
+    42:{title:"Cooling water tank · visual inspection",points:[{lat:43.2718,lng:-79.8050}],closed:false},
+    43:{title:"Conveyor support · follow-up inspection",points:[{lat:43.2692,lng:-79.8057},{lat:43.2685,lng:-79.8050},{lat:43.2679,lng:-79.8044}],closed:false},
+    45:{title:"North stack · baseline photos",points:[{lat:43.2748,lng:-79.8028}],closed:false}
+  };
+  for(const w of await DB.list(WO_COL)){
+    const sample=samples[w.seq];
+    if(!sample||w.title!==sample.title||!/^J-\d{2}-0(41|42|43|45)$/.test(w.id)||w.trashed||pts(w).length) continue;
+    await DB.update(WO_COL+"/"+w.id,{location:{points:sample.points,height:0,closed:sample.closed,demo:true}});
+  }
+  await DB.set("demo/mapLocations",{version:1});
 }
 
 boot().catch(e=>{showGate("loading","The demo could not open. Please allow browser storage and reload.");console.error(e);});
