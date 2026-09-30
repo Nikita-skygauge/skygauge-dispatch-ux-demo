@@ -1577,7 +1577,7 @@ function addWOOverlay(w){
   const o={ sig:JSON.stringify(w.location||{}), m:null, pin:null, area:null, line:null, box:null, labels:[] };
   const c=woColor(w); const a=locAnchor(w); const h=locHeight(w); const kind=locKindW(w); const mode=surf(P);
   const topLift=kind==="point"?(a.alt||0)+0.3:kind==="line"?2:(h>0?h+1:1.5);
-  o.m=mk3("mi",{ position:atSurf(kind==="area"?{ ...a, ground:minGround(P) }:a,topLift), altitudeMode:mode, extruded:kind==="point" });
+  o.m=mk3("mi",{ position:atSurf(kind==="area"?{ ...a, ground:mode==="ABSOLUTE"?minGround(P):undefined }:a,topLift), altitudeMode:mode, extruded:kind==="point" });
   o.pin=pinTemplate(c,1.1,undefined,w.id.slice(-3)); setTpl(o.m,o.pin.tpl); o.m.__onClick=e=>{ if(V.draw||V.placing) return; e.stopPropagation?.(); enterWOView(w.id); };
   if(kind==="line"){ o.line=mk3("pl",{ altitudeMode:mode, strokeColor:`rgba(${rgb(c)},0.95)`, strokeWidth:5, drawsOccludedSegments:true, path:P.map(p=>atSurf(p,1)) }); }
   if(kind==="area"){ o.area=mk3("pg",{ altitudeMode:mode, drawsOccludedSegments:true, fillColor:`rgba(${rgb(c)},0.28)`, strokeColor:`rgba(${rgb(c)},0.95)`, strokeWidth:4, path:[...P,P[0]].map(p=>atSurf(p,0.8)) });
