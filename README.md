@@ -6,7 +6,7 @@ This is a separate repository copy because GitHub does not support forking a per
 
 ## Try it
 
-Open the [demo](https://nikita-skygauge.github.io/skygauge-dispatch-ux-demo/). Choose **Site map** to explore twenty sample jobs. Open a labelled group, choose a job to highlight its work area, and use **Open job** for details. Try **Needs attention**, **Mine**, search, or a work-area filter. **All jobs** includes completed work.
+Open the [demo](https://nikita-skygauge.github.io/skygauge-dispatch-ux-demo/). Choose **Site map** to explore twenty sample jobs. Click a job count on the map, choose a job to highlight its work area, and use **Open job** for details. Try **Needs attention**, **Mine**, or search. **All jobs** includes completed work.
 
 In Jobs, start with **New job**, then add an owner, due date, asset, scope, and notes. Switch between List and Board, or explore a sample email thread in Inbox.
 
@@ -21,10 +21,10 @@ To run locally, serve this folder with any static web server, for example `pytho
 - Advanced properties, photos, files, activity, and email threads remain available.
 - Phone layouts use compact job rows and full-page job details.
 - Main job controls support keyboard access; dialogs use native focus management.
-- Twenty sample jobs span four work areas. Nineteen have illustrative locations; one is deliberately unplaced. Existing user-created jobs remain in addition to the sample set.
-- The map starts with compact, labelled groups that separate into pins as you zoom. Only the selected job draws its full shape. Measurements and editing handles appear while editing its location.
-- A persistent list groups jobs by work area, with a compact selection summary and separate actions to open the job or edit its location. On phones, this becomes an expandable bottom panel.
-- Active, All jobs, Needs attention, Mine, search, and area filters update the list and map together. Completed jobs are hidden initially; jobs without a location remain visible in a separate list section.
+- Twenty sample jobs are distributed across the site. Nineteen have illustrative locations; one is deliberately unplaced. Existing user-created jobs remain in addition to the sample set.
+- The map automatically groups jobs by distance at the current zoom level and shows simple counts such as “6 jobs.” Counts separate into pins as you zoom. No asset, plant section, or area name is needed. Only the selected job draws its full shape. Measurements and editing handles appear while editing its location.
+- A persistent list groups jobs by their existing status, with a compact selection summary and separate actions to open the job or edit its location. On phones, this becomes an expandable bottom panel.
+- Active, All jobs, Needs attention, Mine, and search filters update the list and map together. Completed jobs are hidden initially; jobs without a location remain visible in a separate list section.
 - One-time migrations fill empty locations on the original samples and add fifteen jobs without overwriting existing jobs, notes, geometry, assets, or map credentials. The migrations resume safely after a partial run. Sample locations are not verified positions of real assets.
 
 ## Demo boundaries
@@ -39,6 +39,6 @@ Original authentication and Firestore adapters remain as inactive source referen
 
 ## Validation
 
-Checked JavaScript syntax and browser flows for name-only job creation, owner/status/due-date changes, scope and note editing, reload persistence, List and Board navigation, search, sample replies, and phone layouts. Also checked real 3D sample-area rendering, map framing, missing-location messaging and placement entry, and the one-time map migration (including preservation of existing geometry, renamed/deleted jobs, notes, and configuration). The twenty-job update was also checked for migration idempotence and partial-run recovery, site-boundary containment, cluster count preservation, zoom expansion, filtering, group and pin selection, location-edit cancellation, and responsive layout. The original production repository was not modified.
+Checked JavaScript syntax and browser flows for name-only job creation, owner/status/due-date changes, scope and note editing, reload persistence, List and Board navigation, search, sample replies, and phone layouts. Also checked real 3D sample-area rendering, map framing, missing-location messaging and placement entry, and the one-time map migration (including preservation of existing geometry, renamed/deleted jobs, notes, and configuration). The twenty-job update was also checked for migration idempotence and partial-run recovery, site-boundary containment, cluster count preservation, independence from asset/area metadata, zoom expansion, filtering, group and pin selection, location-edit cancellation, and responsive layout. The original production repository was not modified.
 
 `index.html` contains the original application with the demo data and workflow changes. `ux.css` contains the interface styling layer. No build step is required.

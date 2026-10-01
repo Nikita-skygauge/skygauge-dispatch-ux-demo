@@ -450,7 +450,7 @@ body.creating #pbody{display:flex;flex-direction:column}.create{display:flex;fle
 <div id="app" hidden>
   <div class="screen" id="view-map">
     <div id="canvas-wrap">
-      <div id="map-overview-bar"><div><strong id="map-overview-title">Site overview</strong><span id="map-overview-help">Open a group, then choose a job.</span></div><button class="btn" id="map-overview">Overview</button><button class="btn teal" id="map-fit">Fit jobs</button></div>
+      <div id="map-overview-bar"><div><strong id="map-overview-title">Site overview</strong><span id="map-overview-help">Nearby jobs are grouped automatically.</span></div><button class="btn" id="map-overview">Overview</button><button class="btn teal" id="map-fit">Fit jobs</button></div>
       <div id="mode"><span class="mode-tag">Site view</span><span class="mode-txt">Click a pin or a job area to open it.</span><span id="draw-acts" hidden style="display:flex;gap:6px"><button class="btn sm primary" id="draw-done">Done ✓</button></span><button class="btn sm" id="mode-exit" hidden>✕ Cancel</button><button class="btn sm teal" id="site-view" hidden>Site view</button></div>
       <div id="hud"><div class="btn" id="pivot-hint" title="Hold Shift and drag to rotate and tilt the view"><span class="k">Hold <b>Shift</b> to pivot</span><span class="on">Pivot mode</span></div></div>
       <div id="orbit" hidden title="Drag to rotate · wheel or pinch to zoom"></div>
@@ -471,7 +471,6 @@ body.creating #pbody{display:flex;flex-direction:column}.create{display:flex;fle
         <div class="map-panel-title"><div><div class="eyebrow">Dofasco / Site map</div><h2>Work on site</h2><p id="map-total"></p></div><button class="btn primary" id="map-new-job" aria-label="Create a job">＋</button></div>
         <input id="map-search" type="search" placeholder="Find a job or asset…" aria-label="Search site jobs">
         <div class="map-scopes" aria-label="Job views"><button data-mscope="active" aria-pressed="true">Active <b></b></button><button data-mscope="all">All jobs <b></b></button><button data-mscope="attention">Needs attention <b></b></button><button data-mscope="mine">Mine <b></b></button></div>
-        <select id="map-area-filter" aria-label="Filter by work area"><option value="">All work areas</option></select>
         <div id="map-focus" hidden><span id="map-focus-text"></span><button class="btn ghost" id="map-unfocus" aria-label="Clear nearby group">×</button></div>
         <div class="map-results-line"><span id="map-results" role="status"></span><button class="link" id="map-clear" hidden>Reset</button></div><p id="map-hidden"></p>
       </div>
@@ -1588,12 +1587,12 @@ function syncOverlays(){
   const groups=groupMapJobs(rows.filter(w=>w.id!==selected?.id&&!w.draft),map.range||siteGeom().range),want=new Set();
   groups.forEach(g=>{
     const key=g.jobs.map(w=>w.id).join("|"),one=g.jobs.length===1?wFromGroup(g):null;
-    const sig=JSON.stringify([g.anchor,g.jobs.map(w=>[w.id,w.statusId,w.location]),mapClusterName(g.jobs)]);want.add(key);
+    const sig=JSON.stringify([g.anchor,g.jobs.map(w=>[w.id,w.statusId,w.location])]);want.add(key);
     if(OV.groups[key]?.sig===sig)return;
     if(OV.groups[key])poolPut(OV.groups[key].m);
     const a=one?locAnchor(one):g.anchor,mode=one?surf(pts(one)):"RELATIVE_TO_MESH";
     const m=mk3("mi",{position:atSurf(a,one?(a.alt||0)+2:5),altitudeMode:mode,tpl:one?pinTemplate(woColor(one),1,undefined,one.id.slice(-3)).tpl:clusterTemplate(g.jobs)});
-    m.setAttribute?.("aria-label",one?`${one.id}: ${one.title}`:`${g.jobs.length} jobs near ${mapClusterName(g.jobs)}`);
+    m.setAttribute?.("aria-label",one?`${one.id}: ${one.title}`:`${g.jobs.length} nearby jobs. Show these jobs.`);
     m.__onClick=e=>{if(V.draw||V.placing)return;e.stopPropagation?.();if(one)enterWOView(one.id);else focusMapGroup(g.jobs);};
     OV.groups[key]={m,sig};
   });
@@ -1816,7 +1815,7 @@ function assetEditor(a,anchor,opts={}){
    Google's gesture controller has no "fixed pivot" mode, so in this view a transparent layer over the map takes the
    input itself: drag → heading/tilt, wheel/pinch → range, centre never changes. Lifted while placing or drawing points. */
 let LOCK=null, flying=false, flyT=null;
-function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; if(!mapRows().some(j=>j.id===id)){MF.scope="all";MF.area="";MF.focus=null;S.q="";$("#q").value="";} S.legendOff.delete(w.statusId); applyLegendTo(w); renderLegend(); S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels(); renderMapJobs(); $("#reg").classList.add("open");
+function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; if(!mapRows().some(j=>j.id===id)){MF.scope="all";MF.focus=null;S.q="";$("#q").value="";} S.legendOff.delete(w.statusId); applyLegendTo(w); renderLegend(); S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels(); renderMapJobs(); $("#reg").classList.add("open");
   // fly only after the map has its final size: an animation started on a hidden or resizing map is dropped by the engine
   if(map){ requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{ if(S.woView&&S.open===w.id){ if(pts(w).length) flyWO(w); else fitMapJobs(); } }, (isMobile()||wasHidden)?320:60))); } }
 function exitWOView(){ S.woView=false; LOCK=null; S.note=null; document.body.classList.remove("note-view"); leaveJobScene(); syncJobLabels(); document.body.classList.remove("wo-view"); closePeek(); resetMode(); orbitSync(); }   // camera stays where it is; the Site button reframes on demand
@@ -2537,26 +2536,24 @@ async function seedDemoLocations(){
 }
 
 /* A shared filter drives the map and its list. Clusters are temporary views, not stored records. */
-const MF={scope:"active",area:"",focus:null,collapsed:new Set()};
-function mapArea(w){ return asset(w.values?.asset?.[0])?.area||"Unassigned area"; }
+const MF={scope:"active",focus:null,collapsed:new Set()};
 function mapToday(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function mapAttention(w){ return !isDone(w)&&(w.statusId==="on_hold"||!!(w.values?.deadline?.start&&w.values.deadline.start<mapToday())); }
 function mapScopeMatch(w,scope){ return scope==="all"||scope==="attention"&&mapAttention(w)||scope==="mine"&&isOpen(w)&&(w.values?.owner||[]).some(p=>p.uid===S.user?.uid)||scope==="active"&&isOpen(w); }
-function mapRows(){ return filtered().filter(w=>mapScopeMatch(w,MF.scope)&&(!MF.area||mapArea(w)===MF.area)&&(!MF.focus||MF.focus.includes(w.id))); }
+function mapRows(){ return filtered().filter(w=>mapScopeMatch(w,MF.scope)&&(!MF.focus||MF.focus.includes(w.id))); }
 function mapDistance(a,b){ return Math.hypot((a.lat-b.lat)*111320,(a.lng-b.lng)*111320*Math.cos((a.lat+b.lat)*Math.PI/360)); }
 function groupMapJobs(rows,range){
   const radius=range>2000?380:range>1100?200:range>550?95:range>250?42:18;
   const groups=[];
   rows.filter(w=>pts(w).length).sort((a,b)=>a.id.localeCompare(b.id)).forEach(w=>{
-    const a=locAnchor(w); let g=groups.find(g=>mapArea(g.jobs[0])===mapArea(w)&&mapDistance(g.anchor,a)<=radius&&g.jobs.every(j=>mapDistance(locAnchor(j),a)<=radius*1.6));
+    const a=locAnchor(w); let g=groups.find(g=>mapDistance(g.anchor,a)<=radius&&g.jobs.every(j=>mapDistance(locAnchor(j),a)<=radius*1.6));
     if(!g){g={jobs:[],anchor:a};groups.push(g);}g.jobs.push(w);g.anchor=centroid(g.jobs.map(locAnchor));
   });
   return groups;
 }
-function mapClusterName(jobs){const names=[...new Set(jobs.map(mapArea))];return names.length===1?names[0]:"Nearby jobs";}
 function clusterTemplate(jobs){
-  const t=document.createElement("template"), label=mapClusterName(jobs), width=Math.max(132,Math.min(210,58+label.length*6.2));
-  t.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="57" viewBox="0 0 ${width} 57"><path d="M${width/2-6} 42l6 8 6-8" fill="#fff" stroke="#307257" stroke-width="2"/><rect x="2" y="2" width="${width-4}" height="42" rx="21" fill="#fff" stroke="#307257" stroke-width="2"/><circle cx="24" cy="23" r="15" fill="#307257"/><text x="24" y="28" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#fff">${jobs.length}</text><text x="47" y="27" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#253b2c">${P(label)}</text></svg>`;
+  const t=document.createElement("template"),width=jobs.length>99?112:96;
+  t.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="57" viewBox="0 0 ${width} 57"><path d="M${width/2-6} 42l6 8 6-8" fill="#fff" stroke="#307257" stroke-width="2"/><rect x="2" y="2" width="${width-4}" height="42" rx="21" fill="#fff" stroke="#307257" stroke-width="2"/><circle cx="25" cy="23" r="16" fill="#307257"/><text x="25" y="28" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#fff">${jobs.length}</text><text x="49" y="27" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="#253b2c">jobs</text></svg>`;
   return t;
 }
 function mapEditorOpen(){ return S.tab==="map"&&!!S.open&&!!(editLoc===S.open||S.note||S.creating||V.draw||V.placing); }
@@ -2567,25 +2564,29 @@ function syncMapPanel(){
   $("#map-total").textContent=`${live().length} jobs on site`;
   head.querySelectorAll("[data-mscope]").forEach(b=>{b.setAttribute("aria-pressed",b.dataset.mscope===MF.scope);b.querySelector("b").textContent=live().filter(w=>mapScopeMatch(w,b.dataset.mscope)).length;});
   const input=$("#map-search");if(document.activeElement!==input)input.value=S.q;
-  const areas=[...new Set(live().map(mapArea))].sort(),sel=$("#map-area-filter"),opts=`<option value="">All work areas</option>`+areas.map(a=>`<option value="${P(a)}">${P(a)}</option>`).join("");
-  if(sel.innerHTML!==opts)sel.innerHTML=opts;sel.value=MF.area;
   const rows=mapRows(),mapped=rows.filter(w=>pts(w).length).length;
   $("#map-results").textContent=`${rows.length} job${rows.length===1?"":"s"} shown · ${mapped} on map`;
   $("#map-focus").hidden=!MF.focus;
   $("#map-focus-text").textContent=MF.focus?`${rows.length} nearby jobs`:"";
-  $("#map-clear").hidden=MF.scope==="active"&&!MF.area&&!MF.focus&&!S.q;
+  $("#map-clear").hidden=MF.scope==="active"&&!MF.focus&&!S.q;
   $("#map-hidden").textContent=MF.scope==="active"?`${live().filter(isDone).length} completed jobs hidden`:MF.scope==="attention"?"On hold or past their due date":MF.scope==="mine"?"Your active jobs":"Includes completed work";
   const w=S.woView&&S.open?W(S.open):null,el=$("#map-selected");el.hidden=!w;
   if(w)el.innerHTML=`<div class="map-selection-top"><span>Selected · ${P(w.id)}</span><button class="btn ghost" data-map-close aria-label="Close selected job">×</button></div><h3>${P(w.title||"Untitled")}</h3><div class="map-selection-meta">${statusPill(w)}<span>${P((w.values?.owner||[]).map(p=>p.name.split(" ")[0]).join(", ")||"Unassigned")}</span><span>${w.values?.deadline?.start?P(fmtDate(w.values.deadline.start)):"No due date"}</span></div><p>${pts(w).length?"Only this job’s work area is highlighted.":"No location yet. Add one to place this job on the map."}</p><div class="map-selection-actions"><button class="btn primary" data-map-open>Open job ↗</button><button class="btn" data-map-edit>${pts(w).length?"Edit location":"Add location"}</button></div>`;
-  const scopeLabel=MF.focus?"Nearby jobs":MF.area||"Site overview";
+  const scopeLabel=MF.focus?"Nearby jobs":"Site overview";
   $("#map-overview-title").textContent=scopeLabel;
-  $("#map-overview-help").textContent=w?`${w.id} selected · other jobs stay compact`:"Open a group, then choose a job to see its work area.";
+  $("#map-overview-help").textContent=w?`${w.id} selected · other jobs stay compact`:"Nearby jobs are grouped automatically. Click a count to explore.";
   $("#map-fit").disabled=!map||!mapped;
 }
 function mapJobRow(w){const owner=(w.values?.owner||[]).map(p=>p.name.split(" ")[0]).join(", ")||"Unassigned",date=w.values?.deadline?.start;return `<button class="map-job-row ${S.open===w.id?"selected":""}" data-wo="${P(w.id)}" aria-pressed="${S.open===w.id}"><span class="map-row-top"><span class="map-row-id">${P(w.id)}</span>${statusPill(w)}</span><strong>${P(w.title||"Untitled")}</strong><span class="map-row-meta"><span>${P(owner)}</span><span class="${mapAttention(w)?"attention":""}">${date?P(fmtDate(date)):"No due date"}</span>${!pts(w).length?`<span class="unmapped-job">No location</span>`:""}</span></button>`;}
+function mapStatusGroups(rows){
+  const order=["on_hold","in_progress","outstanding","draft","completed"],groups=[];
+  rows.forEach(w=>{const st=status(w.statusId),id=st?.id||w.statusId||"unknown";let g=groups.find(g=>g.id===id);if(!g){g={id,label:st?.name||"Other jobs",jobs:[]};groups.push(g);}g.jobs.push(w);});
+  const rank=g=>{const i=order.indexOf(g.id);return i<0?4:i;};
+  return groups.sort((a,b)=>rank(a)-rank(b)||a.label.localeCompare(b.label));
+}
 function renderMapJobs(){
-  const rows=mapRows(),mapped=rows.filter(w=>pts(w).length),unmapped=rows.filter(w=>!pts(w).length),areas=[...new Set(mapped.map(mapArea))].sort();
-  $("#tree").innerHTML=areas.map(a=>{const ws=mapped.filter(w=>mapArea(w)===a),closed=MF.collapsed.has(a);return `<section class="map-job-group"><div class="map-group-heading"><button data-map-collapse="${P(a)}" aria-expanded="${!closed}">${closed?"▸":"▾"} ${P(a)} <b>${ws.length}</b></button><button data-map-area="${P(a)}" aria-label="Focus ${P(a)}" title="Show this area on the map">↗</button></div>${closed?"":ws.sort((a,b)=>Number(mapAttention(b))-Number(mapAttention(a))||(a.values?.deadline?.start||"9999").localeCompare(b.values?.deadline?.start||"9999")).map(mapJobRow).join("")}</section>`;}).join("")+(unmapped.length?`<section class="map-job-group"><div class="map-group-heading"><span>Not placed on map <b>${unmapped.length}</b></span></div>${unmapped.map(mapJobRow).join("")}</section>`:"")||`<div class="map-empty"><h3>No jobs match</h3><p>Try another view or clear your filters.</p><button class="btn" data-map-reset>Clear filters</button></div>`;
+  const rows=mapRows(),mapped=rows.filter(w=>pts(w).length),unmapped=rows.filter(w=>!pts(w).length);
+  $("#tree").innerHTML=mapStatusGroups(mapped).map(g=>{const closed=MF.collapsed.has(g.id);return `<section class="map-job-group"><div class="map-group-heading"><button data-map-collapse="${P(g.id)}" aria-expanded="${!closed}">${closed?"▸":"▾"} ${P(g.label)} <b>${g.jobs.length}</b></button></div>${closed?"":g.jobs.sort((a,b)=>Number(mapAttention(b))-Number(mapAttention(a))||(a.values?.deadline?.start||"9999").localeCompare(b.values?.deadline?.start||"9999")).map(mapJobRow).join("")}</section>`;}).join("")+(unmapped.length?`<section class="map-job-group"><div class="map-group-heading"><span>Not placed on map <b>${unmapped.length}</b></span></div>${unmapped.map(mapJobRow).join("")}</section>`:"")||`<div class="map-empty"><h3>No jobs match</h3><p>Try another view or clear your filters.</p><button class="btn" data-map-reset>Clear filters</button></div>`;
   syncMapPanel();syncOverlays();
 }
 function fitMapJobs(rows=mapRows()){
@@ -2597,16 +2598,15 @@ function updateMapFilters(fit=true){
   if(S.open&&(!mapRows().some(w=>w.id===S.open)))closePeek();
   renderAll();if(fit)fitMapJobs();
 }
-function resetMapFilters(){MF.scope="active";MF.area="";MF.focus=null;S.q="";$("#q").value="";closePeek();updateMapFilters();}
+function resetMapFilters(){MF.scope="active";MF.focus=null;S.q="";$("#q").value="";closePeek();updateMapFilters();}
 function focusMapGroup(jobs){closePeek();MF.focus=jobs.map(w=>w.id);MF.collapsed.clear();renderAll();fitMapJobs(jobs);$("#reg").classList.add("open");}
 $("#map-workspace-head").addEventListener("click",e=>{const b=e.target.closest("[data-mscope]");if(b){MF.scope=b.dataset.mscope;MF.focus=null;updateMapFilters();}if(e.target.closest("#map-unfocus")){MF.focus=null;updateMapFilters();}if(e.target.closest("#map-clear"))resetMapFilters();});
-$("#map-area-filter").onchange=e=>{MF.area=e.target.value;MF.focus=null;updateMapFilters();};
 $("#map-search").oninput=e=>{S.q=e.target.value;$("#q").value=S.q;MF.focus=null;updateMapFilters(false);};
 $("#map-fit").onclick=()=>fitMapJobs();
-$("#map-overview").onclick=()=>{closePeek();MF.focus=null;MF.area="";renderAll();fitMapJobs();};
+$("#map-overview").onclick=()=>{closePeek();MF.focus=null;renderAll();fitMapJobs();};
 $("#map-new-job").onclick=()=>startCreate();
 $("#map-selected").onclick=e=>{if(e.target.closest("[data-map-close]")){closePeek();renderAll();}if(e.target.closest("[data-map-open]")&&S.open)openJobPage(S.open);if(e.target.closest("[data-map-edit]")&&S.open){editLoc=S.open;addPoints(S.open);renderRecord();syncMapPanel();}};
-$("#tree").addEventListener("click",e=>{const c=e.target.closest("[data-map-collapse]"),a=e.target.closest("[data-map-area]");if(c){const n=c.dataset.mapCollapse;MF.collapsed.has(n)?MF.collapsed.delete(n):MF.collapsed.add(n);renderMapJobs();}if(a){MF.area=a.dataset.mapArea;MF.focus=null;closePeek();updateMapFilters();}if(e.target.closest("[data-map-reset]"))resetMapFilters();});
+$("#tree").addEventListener("click",e=>{const c=e.target.closest("[data-map-collapse]");if(c){const n=c.dataset.mapCollapse;MF.collapsed.has(n)?MF.collapsed.delete(n):MF.collapsed.add(n);renderMapJobs();}if(e.target.closest("[data-map-reset]"))resetMapFilters();});
 
 /* Add fifteen examples once, bringing a fresh demo to twenty jobs. Never overwrite user records. */
 async function seedBusySite(){
