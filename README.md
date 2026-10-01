@@ -8,14 +8,16 @@ This is a separate repository copy because GitHub does not support forking a per
 
 Open the [demo](https://nikita-skygauge.github.io/skygauge-dispatch-ux-demo/). Choose **Site map** to explore twenty sample jobs. Click a job count on the map, choose a job to highlight its work area, and use **Open job** for details. Try **Needs attention**, **Mine**, or search. **All jobs** includes completed work.
 
-In Jobs, start with **New job**, then add an owner, due date, asset, scope, and notes. Switch between List and Board, or explore a sample email thread in Inbox.
+In Jobs, choose **New job** to try the four-step flow: **Who → What → Where → Why**. Select people and a lead; define the asset, equipment, inspection methods, due date, and scope; place a pin or draw an area on the real site map; then explain the reason and expected result. Review the summary and choose **Create job**. **Save & close** keeps your unfinished draft in the same tab, including across reloads. Switch between List and Board, or explore a sample email thread in Inbox.
 
 To run locally, serve this folder with any static web server, for example `python3 -m http.server 8767`, and open `http://localhost:8767`.
 
 ## What changed
 
 - Jobs is the starting point, with List and Board views and a quieter sidebar.
-- Creating a job requires only a name. Asset and map location are optional.
+- Job creation is a focused four-step dialog with a progress indicator, contextual job preview, clear Back/Continue actions, and a final Create job action. Only the name is required; people, assets, equipment, methods, dates, scope, and purpose can be added later. The map step offers an explicit Add location later option.
+- Who uses searchable people cards with clear selection states and a lead chosen from the selected team. What groups the work details and inspection choices. Where supports a pin or an area, with Undo, Clear, Fit selection, and Site overview. Why separates the reason from the expected result.
+- Drafts are kept in session storage for the current tab; closing the tab ends that draft. Saving or navigating the draft does not create a job. The final action stores the team, scope, equipment, location, reason, and outcome together. Those details remain editable on the job page.
 - Jobs open as full pages. Owner, due date, asset, work type, and scope are easy to find.
 - Text notes stay inside the job page. Spatial notes still use the original map tools.
 - Advanced properties, photos, files, activity, and email threads remain available.
@@ -39,6 +41,6 @@ Original authentication and Firestore adapters remain as inactive source referen
 
 ## Validation
 
-Checked JavaScript syntax and browser flows for name-only job creation, owner/status/due-date changes, scope and note editing, reload persistence, List and Board navigation, search, sample replies, and phone layouts. Also checked real 3D sample-area rendering, map framing, missing-location messaging and placement entry, and the one-time map migration (including preservation of existing geometry, renamed/deleted jobs, notes, and configuration). The twenty-job update was also checked for migration idempotence and partial-run recovery, site-boundary containment, cluster count preservation, independence from asset/area metadata, zoom expansion, filtering, group and pin selection, location-edit cancellation, and responsive layout. The original production repository was not modified.
+Checked JavaScript syntax and browser flows for name-only job creation, owner/status/due-date changes, scope and note editing, reload persistence, List and Board navigation, search, sample replies, and phone layouts. Also checked real 3D sample-area rendering, map framing, missing-location messaging and placement entry, and the one-time map migration (including preservation of existing geometry, renamed/deleted jobs, notes, and configuration). The twenty-job update was also checked for migration idempotence and partial-run recovery, site-boundary containment, cluster count preservation, independence from asset/area metadata, zoom expansion, filtering, group and pin selection, location-edit cancellation, and responsive layout. The four-step flow was checked for team and lead selection, required-name validation, draft resume, real map pin/area placement, incomplete-area guidance, backward navigation, final creation, people search, location deferral, phone layouts, draft recovery after reload, and persistence/editing of job context after reload. Payload/storage tests cover optional fields, retained property data, location copies, and explicit location deferral. The original production repository was not modified.
 
 `index.html` contains the original application with the demo data and workflow changes. `ux.css` contains the interface styling layer. No build step is required.
