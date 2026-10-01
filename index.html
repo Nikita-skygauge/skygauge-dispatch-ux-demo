@@ -450,6 +450,7 @@ body.creating #pbody{display:flex;flex-direction:column}.create{display:flex;fle
 <div id="app" hidden>
   <div class="screen" id="view-map">
     <div id="canvas-wrap">
+      <div id="map-overview-bar"><div><strong id="map-overview-title">Site overview</strong><span id="map-overview-help">Open a group, then choose a job.</span></div><button class="btn" id="map-overview">Overview</button><button class="btn teal" id="map-fit">Fit jobs</button></div>
       <div id="mode"><span class="mode-tag">Site view</span><span class="mode-txt">Click a pin or a job area to open it.</span><span id="draw-acts" hidden style="display:flex;gap:6px"><button class="btn sm primary" id="draw-done">Done ✓</button></span><button class="btn sm" id="mode-exit" hidden>✕ Cancel</button><button class="btn sm teal" id="site-view" hidden>Site view</button></div>
       <div id="hud"><div class="btn" id="pivot-hint" title="Hold Shift and drag to rotate and tilt the view"><span class="k">Hold <b>Shift</b> to pivot</span><span class="on">Pivot mode</span></div></div>
       <div id="orbit" hidden title="Drag to rotate · wheel or pinch to zoom"></div>
@@ -466,6 +467,15 @@ body.creating #pbody{display:flex;flex-direction:column}.create{display:flex;fle
     </div>
     <aside id="reg">
       <div class="handle" id="reg-handle"><i></i><span id="reg-sum"></span><button class="btn teal mini" id="reg-new-mini" aria-label="New job">＋</button><b>▴</b></div>
+      <div id="map-workspace-head">
+        <div class="map-panel-title"><div><div class="eyebrow">Dofasco / Site map</div><h2>Work on site</h2><p id="map-total"></p></div><button class="btn primary" id="map-new-job" aria-label="Create a job">＋</button></div>
+        <input id="map-search" type="search" placeholder="Find a job or asset…" aria-label="Search site jobs">
+        <div class="map-scopes" aria-label="Job views"><button data-mscope="active" aria-pressed="true">Active <b></b></button><button data-mscope="all">All jobs <b></b></button><button data-mscope="attention">Needs attention <b></b></button><button data-mscope="mine">Mine <b></b></button></div>
+        <select id="map-area-filter" aria-label="Filter by work area"><option value="">All work areas</option></select>
+        <div id="map-focus" hidden><span id="map-focus-text"></span><button class="btn ghost" id="map-unfocus" aria-label="Clear nearby group">×</button></div>
+        <div class="map-results-line"><span id="map-results" role="status"></span><button class="link" id="map-clear" hidden>Reset</button></div><p id="map-hidden"></p>
+      </div>
+      <div id="map-selected" hidden></div>
       <div class="title">
         <div class="eyebrow">Site register</div>
         <div class="meta"><b>Extent</b><span id="m-extent">…</span><b>Records</b><span id="m-records">…</span></div>
@@ -650,7 +660,7 @@ async function sendLink(){
 
 async function boot(){
   if(MOCK){
-    DB=trackDB(makeMock()); await seedDemo(); await seedDemoLocations(); window.DB=DB; window.__migrate=()=>migrateToJobs();
+    DB=trackDB(makeMock()); await seedDemo(); await seedDemoLocations(); await seedBusySite(); window.DB=DB; window.__migrate=()=>migrateToJobs();
     ST={ async upload(path,file,onProgress){ onProgress?.(1); const url=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(file); }); return { path, url }; }, async del(){ } };   // exposed for the headless test harness only
     AUTH={ google:async()=>{}, sendLink:async()=>{}, signOut:async()=>location.reload() };
     await enter({ uid:"mock-admin", email:ADMIN_EMAIL, displayName:"Nikita", emailVerified:true });
@@ -814,8 +824,9 @@ const locKindW = w => shapeKindOf(pts(w),locClosed(w));
 const locShape = w => ({ kind:locKindW(w), points:pts(w).map(p=>({ lat:p.lat, lng:p.lng, ...(p.ground!=null?{ground:p.ground}:{}) })), closed:locClosed(w)&&pts(w).length>=3 });
 function locAnchor(w){ const p=pts(w); if(!p.length) return null; if(p.length===1) return p[0]; const c=centroid(p); const g=p.map(x=>x.ground).filter(x=>x!=null); return { ...c, ground:g.length?Math.round(g.reduce((a,b)=>a+b,0)/g.length):undefined, alt:p[0].alt||0 }; }
 async function setPoints(id,points,height,quiet,closed){   // quiet: the selector logs one summary line itself
-  const w=W(id); if(!w) return; const before=locShape(w);
+  const w=W(id); if(!w) return; const before=locShape(w), previousLocation=w.location;
   w.location={ points:points.map(p=>({ lat:p.lat, lng:p.lng, ...(p.ground!=null?{ground:p.ground}:{}), ...(p.alt?{alt:p.alt}:{}) })), height:height??locHeight(w), closed:!!(closed??locClosed(w))&&points.length>=3 };
+  if(previousLocation?.demo&&JSON.stringify(previousLocation.points)===JSON.stringify(w.location.points)&&previousLocation.height===w.location.height&&previousLocation.closed===w.location.closed)w.location.demo=true;
   refreshWOOverlay(w,true); syncPointHandles(); renderAll();
   await flashSaved($("#pbody .locbox")||$("#pbody .ptlist"),()=>DB.update(WO_COL+"/"+id,{ location:w.location, ...stamp() }));
   if(quiet||w.draft) return;
@@ -1156,13 +1167,14 @@ function openWO(id,fly){
 }
 function closePeek(){ $("#peek").inert=true; document.body.classList.remove("job-page"); closeViewer(); if(typeof leaveJobScene==="function") leaveJobScene(); stopPhotos(); stopNotes(); editLoc=null; S.note=null; document.body.classList.remove("note-view"); S.open=null; document.body.classList.remove("peek-open"); $("#peek").classList.remove("on"); actUnsub?.(); actUnsub=null; closePop(); highlightCard(null);
   if(S.woView){ S.woView=false; LOCK=null; document.body.classList.remove("wo-view"); if(typeof resetMode==="function") resetMode(); if(typeof orbitSync==="function") orbitSync(); }   // closing the panel from any tab also leaves the job view
-  if(typeof syncJobLabels==="function") syncJobLabels(); }
+  if(typeof syncJobLabels==="function") syncJobLabels(); syncMapPanel(); syncOverlays(); }
 function highlightCard(id){ $$(".kcard.hl").forEach(c=>c.classList.remove("hl")); if(id){ const c=document.querySelector(`.kcard[data-id="${id}"]`); if(c){ c.classList.add("hl"); c.scrollIntoView({block:"nearest"}); } } }
 let lastRendered=null, editLoc=null;   // editLoc: the record whose job area is expanded for editing
 let renderPauseUntil=0,renderResume;
 document.addEventListener("pointerdown",()=>{if($("#pbody")?.contains(document.activeElement)&&/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)){renderPauseUntil=Date.now()+160;}},true);
 document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches('[role="button"][tabindex="0"]')){e.preventDefault();e.target.click();}});
 function renderRecord(){
+  syncMapPanel();
   if(Date.now()<renderPauseUntil){clearTimeout(renderResume);renderResume=setTimeout(renderRecord,170);return;}
   const w=W(S.open); if(!w){ closePeek(); return; }
   // a snapshot (another user's edit, our own noteCount write…) must not wipe a field the user is typing in
@@ -1321,6 +1333,7 @@ function propsToggle(anchor){
 
 /* ---------- left register (Viewer tab) ---------- */
 function renderTree(){
+  if(S.tab==="map"&&S.sub==="wo"){renderMapJobs();return;}
   const q=S.q.trim().toLowerCase();
   if(S.sub==="wo"){
     const rows=filtered();
@@ -1332,10 +1345,10 @@ function renderTree(){
     $("#tree").innerHTML=areas.map(ar=>`<div class="eyebrow" style="padding:8px 8px 2px">${P(ar)}</div>${as.filter(a=>(a.area||"Other")===ar).map(a=>{ const n=live().filter(w=>(w.values?.asset||[]).includes(a.tag)&&isOpen(w)).length; return `<div class="it" data-asset="${P(a.tag)}"><span class="tag">${P(a.tag)}</span><span class="n" title="${P(a.name)}">${P(a.name)}</span><span class="c">${n?n+" open":""}</span></div>`; }).join("")}`).join("")||`<div class="kempty">No assets</div>`;
   }
 }
-$("#tree").addEventListener("click",e=>{ const it=e.target.closest(".it"); if(!it) return; if(it.dataset.wo) enterWOView(it.dataset.wo); else if(it.dataset.asset) assetEditor(asset(it.dataset.asset),it); });
+$("#tree").addEventListener("click",e=>{ const it=e.target.closest(".it,[data-wo]"); if(!it) return; if(it.dataset.wo) enterWOView(it.dataset.wo); else if(it.dataset.asset) assetEditor(asset(it.dataset.asset),it); });
 
 /* ---------- tabs, search, user menu, admin, export ---------- */
-function setTab(t){ document.body.classList.toggle("job-page",t==="wo"&&!!S.open); $("#peek").inert=t==="inbox"||!S.open; S.tab=t; document.body.dataset.tab=t; $$("#bar [data-tab]").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t)); $("#view-map").hidden=t!=="map"; $("#view-wo").hidden=t!=="wo"; $("#view-inbox").hidden=t!=="inbox"; $("#peek").classList.toggle("ib-hide",t==="inbox"); renderAll(); if(t==="inbox") renderInbox(); }
+function setTab(t){ document.body.classList.toggle("job-page",t==="wo"&&!!S.open); $("#peek").inert=t==="inbox"||!S.open; S.tab=t; document.body.dataset.tab=t; $$("#bar [data-tab]").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t)); $("#view-map").hidden=t!=="map"; $("#view-wo").hidden=t!=="wo"; $("#view-inbox").hidden=t!=="inbox"; $("#peek").classList.toggle("ib-hide",t==="inbox"); renderAll(); if(t==="inbox") renderInbox(); syncMapPanel(); }
 const isMobile=()=>matchMedia("(max-width:860px)").matches;
 let dragMoved=false;
 function dragSheet(handle,sheet,onRelease){
@@ -1361,7 +1374,7 @@ function wireUI(){
   $$("#bar [data-tab]").forEach(b=>b.onclick=()=>{ if(S.creating&&b.dataset.tab!=="map") cancelCreate(); if(b.dataset.tab==="wo") closePeek(); setTab(b.dataset.tab); });
   $$("#reg .sub button").forEach(b=>b.onclick=()=>{ S.sub=b.dataset.sub; $$("#reg .sub button").forEach(x=>x.setAttribute("aria-selected",x===b)); renderTree(); });
   $$("#viewsw button").forEach(b=>b.onclick=()=>{ S.view=b.dataset.v; saveView(); renderViews(); });
-  $("#q").oninput=e=>{ S.q=e.target.value; renderAll(); };
+  $("#q").oninput=e=>{ S.q=e.target.value; MF.focus=null; if(S.tab==="map")updateMapFilters(false);else renderAll(); };
   $$("#ib-filters [data-f]").forEach(b=>b.onclick=e=>{ if(b.dataset.f==="job"){ jobFilterMenu(b); return; } IB.f=b.dataset.f; IB.job=null; renderInbox(); });
   $("#ib-sim").onclick=e=>simInbound(e.currentTarget,null);
   $("#b-new").onclick=()=>startCreate();
@@ -1414,7 +1427,7 @@ async function exportJSON(){
 /* =====================================================================
    MAP — Google photorealistic 3D, camera bounded to the site
    ===================================================================== */
-let map=null, lib=null; const OV={ wo:{}, asset:{}, site:null, draw:[] }; let placePin=null;
+let map=null, lib=null; const OV={ wo:{}, groups:{}, asset:{}, site:null, draw:[] }; let placePin=null;
 const V={ draw:null, placing:null };
 /* SCENE — nothing is ever removed from the 3D map.
    Maps 3D (beta) sometimes keeps drawing a marker after remove(): the element is gone from the DOM but its sprite stays on
@@ -1445,7 +1458,7 @@ function poolPut(el){ if(!el) return; if(!el.__pool){ try{ el.remove(); }catch{}
     else { el.strokeColor=CLEAR; el.strokeWidth=0; el.path=[p,{ ...p, lng:p.lng+1e-6 }]; } }catch(e){ console.warn("pool park",e); }
   if(!POOL.free[el.__pool].includes(el)) POOL.free[el.__pool].push(el); }
 const SCENE={ sweep:false, pending:false, swept:0 };
-function sceneCamEvent(){}
+let mapGroupTimer;function sceneCamEvent(){clearTimeout(mapGroupTimer);mapGroupTimer=setTimeout(()=>{if(!V.draw&&!V.placing)syncOverlays();},180);}
 function stopFlight(){ if(!map) return; try{ if(typeof flying!=="undefined"&&flying){ map.stopCameraAnimation?.(); flying=false; clearTimeout(flyT); } }catch{} }
 function killEl(x){ poolPut(x); }
 function killAll(a){ if(!a||!a.length) return; a.forEach(poolPut); }
@@ -1455,6 +1468,7 @@ function sceneSchedule(){ if(SCENE.pending) return; SCENE.pending=true; requestA
 function sceneKnown(){ const k=new Set(); const add=x=>{ if(x) k.add(x); };
   Object.values(OV.wo).forEach(o=>{ if(o.hidden) return; if(!o.pinHidden) add(o.m); add(o.area); add(o.line); add(o.box); (o.labels||[]).forEach(add); }); add(OV.site); (OV.draw||[]).forEach(add);
   if(typeof PTH!=="undefined") PTH.forEach(add); if(typeof PINOV!=="undefined") Object.values(PINOV).forEach(a=>a.forEach(add)); if(typeof PHOV!=="undefined") Object.values(PHOV).forEach(o=>{ add(o.m); (o.sight||[]).forEach(add); });
+  Object.values(OV.groups).forEach(o=>add(o.m));
   Object.values(POOL.free).forEach(l=>l.forEach(add));
   return k; }
 function sceneChildren(){ if(!map) return []; const c=map.children; return Array.isArray(c)?c.slice():[...c].filter(el=>/^GMP-/i.test(el.tagName||"")); }
@@ -1559,21 +1573,42 @@ async function initMap(){
   map.addEventListener("dblclick",()=>{ if(S.woView&&S.open&&!V.draw&&!V.placing){ const w=W(S.open); if(w) flyWO(w); } });
   $("#canvas-wrap").prepend(map); $("#loading").hidden=true; previewInit(); if(PARAMS.has("debug")) window.__projectLL=projectLL;
   $("#m-extent").textContent=`${(g.e.ns/1000).toFixed(1)} × ${(g.e.ew/1000).toFixed(1)} km`;
-  requestAnimationFrame(()=>{ drawSite(); syncOverlays(); syncPhotoOverlays(); if(S.woView&&S.open) setTimeout(()=>{ const w=W(S.open); if(S.woView&&w) flyWO(w); },350); });
+  requestAnimationFrame(()=>{ drawSite(); syncOverlays(); syncPhotoOverlays(); if(!S.woView)setTimeout(()=>{if(S.tab==="map"&&!S.woView)fitMapJobs();},350); if(S.woView&&S.open) setTimeout(()=>{ const w=W(S.open); if(S.woView&&w) flyWO(w); },350); });
 }
 function applyCameraLimits(){ if(!map) return; const c=siteCam(); fly(c,1200); const g=siteGeom(); $("#m-extent").textContent=`${(g.e.ns/1000).toFixed(1)} × ${(g.e.ew/1000).toFixed(1)} km`; }
 function drawSite(){ if(!map) return; killEl(OV.site); const B=BOUNDARY(); const line=mk3("pl",{ altitudeMode:"CLAMP_TO_GROUND", strokeColor:"rgba(0,255,229,0.95)", strokeWidth:5, drawsOccludedSegments:true, path:[...B,B[0]].map(p=>({lat:p.lat,lng:p.lng,altitude:2})) }); OV.site=line; }
 function syncAssetOverlays(){ /* assets carry no location (register only) */ }
 const rgb = hex => { const n=parseInt(hex.slice(1),16); return `${n>>16},${(n>>8)&255},${n&255}`; };
 function woColor(w){ return col(status(w.statusId)?.color).map; }
-function syncOverlays(){ if(!map||!lib) return; Object.keys(OV.wo).forEach(id=>{ const w=W(id); if(!w||w.trashed||!pts(w).length){ const o=OV.wo[id]; killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); delete OV.wo[id]; mapRedraw(); } }); live().forEach(w=>{ if(OV.wo[w.id]) refreshWOOverlay(w); else addWOOverlay(w); }); renderLegend(); }
+function syncOverlays(){
+  if(!map||!lib||!S.schema)return;
+  const rows=mapRows(),selected=S.woView&&S.open&&rows.find(w=>w.id===S.open);
+  Object.keys(OV.wo).forEach(id=>{if(!selected||selected.id!==id){const o=OV.wo[id];killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]);delete OV.wo[id];}});
+  if(selected&&pts(selected).length)refreshWOOverlay(selected);
+  const groups=groupMapJobs(rows.filter(w=>w.id!==selected?.id&&!w.draft),map.range||siteGeom().range),want=new Set();
+  groups.forEach(g=>{
+    const key=g.jobs.map(w=>w.id).join("|"),one=g.jobs.length===1?wFromGroup(g):null;
+    const sig=JSON.stringify([g.anchor,g.jobs.map(w=>[w.id,w.statusId,w.location]),mapClusterName(g.jobs)]);want.add(key);
+    if(OV.groups[key]?.sig===sig)return;
+    if(OV.groups[key])poolPut(OV.groups[key].m);
+    const a=one?locAnchor(one):g.anchor,mode=one?surf(pts(one)):"RELATIVE_TO_MESH";
+    const m=mk3("mi",{position:atSurf(a,one?(a.alt||0)+2:5),altitudeMode:mode,tpl:one?pinTemplate(woColor(one),1,undefined,one.id.slice(-3)).tpl:clusterTemplate(g.jobs)});
+    m.setAttribute?.("aria-label",one?`${one.id}: ${one.title}`:`${g.jobs.length} jobs near ${mapClusterName(g.jobs)}`);
+    m.__onClick=e=>{if(V.draw||V.placing)return;e.stopPropagation?.();if(one)enterWOView(one.id);else focusMapGroup(g.jobs);};
+    OV.groups[key]={m,sig};
+  });
+  Object.keys(OV.groups).forEach(k=>{if(!want.has(k)){poolPut(OV.groups[k].m);delete OV.groups[k];}});
+  renderLegend();
+}
+function wFromGroup(g){return g.jobs[0];}
+
 /* Points stay where they were clicked on the model (roof, platform, shell) instead of dropping to the ground: each point
    stores the surface altitude `ground` from the click, and overlays use ABSOLUTE altitude from it. Legacy points without
    it fall back to RELATIVE_TO_MESH, which also sits on the surface. */
 function surf(P){ return P.every(p=>p.ground!=null)?"ABSOLUTE":"RELATIVE_TO_MESH"; }
 function atSurf(p,lift){ return { lat:p.lat, lng:p.lng, altitude:(p.ground!=null?p.ground:0)+lift }; }
 function addWOOverlay(w){
-  const P=pts(w); if(!P.length||w.draft) return;
+  const P=pts(w); if(!P.length||w.draft||!S.woView||S.open!==w.id) return;
   const o={ sig:JSON.stringify(w.location||{}), m:null, pin:null, area:null, line:null, box:null, labels:[] };
   const c=woColor(w); const a=locAnchor(w); const h=locHeight(w); const kind=locKindW(w); const mode=surf(P);
   const topLift=kind==="point"?(a.alt||0)+0.3:kind==="line"?2:(h>0?h+1:1.5);
@@ -1586,13 +1621,12 @@ function addWOOverlay(w){
   OV.wo[w.id]=o; applyLegendTo(w); syncJobLabels();   // lengths / pin visibility follow the open state
 }
 /* segment lengths belong to the open job only: strip them from every other job, add them to the open one */
-function syncJobLabels(){ if(!map) return; Object.entries(OV.wo).forEach(([id,o])=>{ const open=S.woView&&S.open===id, on=open&&!S.note; const w=W(id); if(!on&&o.labels?.length){ killAll(o.labels); o.labels=[]; mapRedraw(); } if(on&&!(o.labels?.length)){ if(w&&locKindW(w)!=="point") o.labels=segmentLabels(pts(w),locKindW(w)==="area"); }
+function syncJobLabels(){ if(!map) return; Object.entries(OV.wo).forEach(([id,o])=>{ const open=S.woView&&S.open===id, on=open&&!S.note&&editLoc===id; const w=W(id); if(!on&&o.labels?.length){ killAll(o.labels); o.labels=[]; mapRedraw(); } if(on&&!(o.labels?.length)){ if(w&&locKindW(w)!=="point") o.labels=segmentLabels(pts(w),locKindW(w)==="area"); }
   const hidePin=open&&w&&locKindW(w)!=="point"&&!!S.note; if(hidePin&&!o.pinHidden&&o.m){ poolPut(o.m); o.m=null; o.pinHidden=true; } else if(!hidePin&&o.pinHidden){ o.pinHidden=false; if(w&&!w.trashed) refreshWOOverlay(w,true); } }); }
 function minGround(P){ const g=P.map(p=>p.ground).filter(x=>x!=null); return g.length?Math.min(...g):GROUND_FALLBACK; }
-function refreshWOOverlay(w,force){ if(!map) return; const o=OV.wo[w.id]; if(!o){ if(!w.trashed) addWOOverlay(w); return; } if(w.trashed||force||o.sig!==JSON.stringify(w.location||{})){ killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); delete OV.wo[w.id]; mapRedraw(); if(!w.trashed) addWOOverlay(w); return; } const c=woColor(w); if(o.m) o.pin.setFill(c); if(o.area){ o.area.fillColor=`rgba(${rgb(c)},0.28)`; o.area.strokeColor=`rgba(${rgb(c)},0.95)`; } if(o.line) o.line.strokeColor=`rgba(${rgb(c)},0.95)`; applyLegendTo(w); }
+function refreshWOOverlay(w,force){ if(!map||!S.woView||S.open!==w.id) return; const o=OV.wo[w.id]; if(!o){ if(!w.trashed) addWOOverlay(w); return; } if(w.trashed||force||o.sig!==JSON.stringify(w.location||{})){ killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); delete OV.wo[w.id]; mapRedraw(); if(!w.trashed) addWOOverlay(w); return; } const c=woColor(w); if(o.m) o.pin.setFill(c); if(o.area){ o.area.fillColor=`rgba(${rgb(c)},0.28)`; o.area.strokeColor=`rgba(${rgb(c)},0.95)`; } if(o.line) o.line.strokeColor=`rgba(${rgb(c)},0.95)`; applyLegendTo(w); }
 function applyLegendTo(w){ const o=OV.wo[w.id]; if(!o) return; const hide=S.legendOff.has(w.statusId); if(hide&&!o.hidden){ killAll([o.m,o.area,o.line,o.box,...(o.labels||[])]); o.hidden=true; mapRedraw(); } else if(!hide&&o.hidden){ delete OV.wo[w.id]; addWOOverlay(w); syncJobLabels(); } }   // legend off: parts are buried and dropped; back on: rebuilt
-function renderLegend(){ if(!S.schema) return; const mapped=live().filter(w=>pts(w).length&&!w.draft); $("#legend").innerHTML=`<span class="legend-heading">On map</span>`+statuses().filter(o=>mapped.some(w=>w.statusId===o.id)).map(o=>`<span data-s="${o.id}" class="${S.legendOff.has(o.id)?"off":""}"><i style="background:${col(o.color).map}"></i>${P(o.name)} <span class="mono">${mapped.filter(w=>w.statusId===o.id).length}</span></span>`).join("")+`<span class="legend-unmapped">${live().filter(w=>!pts(w).length).length} without a location</span>`; }
-$("#legend").addEventListener("click",e=>{ const s=e.target.closest("[data-s]"); if(!s) return; S.legendOff.has(s.dataset.s)?S.legendOff.delete(s.dataset.s):S.legendOff.add(s.dataset.s); renderLegend(); live().forEach(applyLegendTo); });
+function renderLegend(){ if(!S.schema) return; const rows=mapRows(),mapped=rows.filter(w=>pts(w).length); $("#legend").innerHTML=`<span class="legend-heading">${mapped.length} job${mapped.length===1?"":"s"} on map</span><span class="legend-unmapped">${rows.length-mapped.length} not placed</span><span class="map-sample-label">Illustrative sample locations</span>`; }
 let flyTok=0; function onFlyEnd(fn){ const tok=++flyTok; const h=()=>{ map.removeEventListener("gmp-animationend",h); if(tok===flyTok) fn(); }; map.addEventListener("gmp-animationend",h); }
 function fly(cam,ms=1800){ if(!map) return; flying=true; map.flyCameraTo({ endCamera:cam, durationMillis:ms }); clearTimeout(flyT); flyT=setTimeout(()=>{ flying=false; },ms+150); onFlyEnd(()=>{ flying=false; }); }
 const GROUND_FALLBACK=80; // m above sea level at the Dofasco works when a pin has no recorded ground elevation
@@ -1610,7 +1644,7 @@ document.addEventListener("keyup",e=>{ if(e.key==="Shift") document.body.classLi
 window.addEventListener("blur",()=>document.body.classList.remove("pivot"));
 
 /* ---------- mode bar, placing and drawing ---------- */
-function setMode(cls,tag,txt,exit){ const md=$("#mode"); md.className=cls; $("#site-view").hidden=!S.woView; if(isMobile()&&S.open){ if(cls==="draw"||cls==="place") setSheet("peek"); else if($("#peek").dataset.sheet==="peek") setSheet("half"); } md.querySelector(".mode-tag").textContent=tag; md.querySelector(".mode-txt").innerHTML=txt; $("#mode-exit").hidden=!exit; if(cls!=="draw") $("#draw-acts").hidden=true; }
+function setMode(cls,tag,txt,exit){ syncMapPanel(); const md=$("#mode"); md.className=cls; $("#site-view").hidden=!S.woView; if(isMobile()&&S.open){ if(cls==="draw"||cls==="place") setSheet("peek"); else if($("#peek").dataset.sheet==="peek") setSheet("half"); } md.querySelector(".mode-tag").textContent=tag; md.querySelector(".mode-txt").innerHTML=txt; $("#mode-exit").hidden=!exit; if(cls!=="draw") $("#draw-acts").hidden=true; }
 function resetMode(){ if(S.woView&&S.open){ woMode(); return; } $("#site-view").hidden=true; setMode("","Site view",isMobile()?"Tap a pin or an area to open it.":"Click a pin or a job area to open it.",false); }
 $("#mode-exit").onclick=()=>{ const d=V.draw; if(d){ if(d.moving){ selCancelMove(); return; } if(d.sel!=null){ d.sel=null; renderDraw(); return; } if(d.live){ $("#draw-done").click(); return; } selCancel(); return; } V.placing=null; placePin?.remove(); placePin=null; map?.classList.remove("placing"); selPt=null; resetMode(); syncPointHandles(); orbitSync(); };
 function onMapClick(e){
@@ -1731,7 +1765,7 @@ function renderDraw(){
   $("#draw-acts").hidden=false; $("#draw-done").disabled=d.needClosed&&!d.closed;
   renderHint(); renderActs();
 }
-function clearDraw(){ PV.hover=null; PV.seg=null; if(map) map.style.cursor=""; if(OV.draw.length){ killAll(OV.draw); OV.draw=[]; mapRedraw(); } if(ACTBOX){ ACTBOX.hidden=true; } if(HINT) HINT.hidden=true; PV.overBox=false; V.draw=null; if(PV.svg) PV.svg.style.display="none"; map?.classList.remove("drawing"); document.body.classList.remove("drawing"); $("#draw-acts").hidden=true; orbitSync(); }
+function clearDraw(){ PV.hover=null; PV.seg=null; if(map) map.style.cursor=""; if(OV.draw.length){ killAll(OV.draw); OV.draw=[]; mapRedraw(); } if(ACTBOX){ ACTBOX.hidden=true; } if(HINT) HINT.hidden=true; PV.overBox=false; V.draw=null; if(PV.svg) PV.svg.style.display="none"; map?.classList.remove("drawing"); document.body.classList.remove("drawing"); syncMapPanel(); $("#draw-acts").hidden=true; orbitSync(); }
 $("#draw-done").onclick=()=>{ const d=V.draw; if(!d) return; const sh=shapeOf(d); if(d.needClosed&&!sh.closed) return; if(sh.kind==="none"&&!d.live){ selCancel(); return; } clearDraw(); resetMode(); d.onDone(sh); };
 $("#edit-site").onclick=()=>{ if(!map) return; setTab("map"); closePeek();
   select3D({ initial:{ points:BOUNDARY(), closed:true }, label:"Site boundary", needClosed:true, site:true, onDone:async sh=>{ S.site={ ...(S.site||{}), boundary:sh.points }; await DB.set("workspace/site",S.site,true); drawSite(); applyCameraLimits(); toast("Site boundary saved in this demo."); } });
@@ -1742,8 +1776,8 @@ function addPoints(id){ const w=W(id); if(!w||!map){ toast("The map is not loade
   const before=locShape(w);
   select3D({ initial:before, label:"Job area", live:true, primary:W(id)?.draft?{ label:"Create job", onClick:()=>finishCreate(), onClose:()=>finishCreate(), cancelLabel:"Cancel", onCancel:()=>cancelCreate() }:null,
     onChange:sh=>setPoints(id,sh.points,undefined,true,sh.closed),
-    onDone:sh=>{ setPoints(id,sh.points,undefined,true,sh.closed); syncPointHandles(); relock(); if(!W(id)?.draft&&JSON.stringify(sh)!==JSON.stringify(before)) log(id, sh.kind==="none"?"cleared the job area":before.kind==="none"?`set the job area (${shapeLabel(sh)})`:`changed the job area (${shapeLabel(sh)})`); if(typeof editLoc!=="undefined"&&editLoc===id){ editLoc=null; renderRecord(); } },
-    onCancel:sh=>{ setPoints(id,sh.points,undefined,true,sh.closed); syncPointHandles(); relock(); if(typeof editLoc!=="undefined"&&editLoc===id){ editLoc=null; renderRecord(); } } }); }
+    onDone:sh=>{ setPoints(id,sh.points,undefined,true,sh.closed); syncPointHandles(); relock(); if(!W(id)?.draft&&JSON.stringify(sh)!==JSON.stringify(before)) log(id, sh.kind==="none"?"cleared the job area":before.kind==="none"?`set the job area (${shapeLabel(sh)})`:`changed the job area (${shapeLabel(sh)})`); if(typeof editLoc!=="undefined"&&editLoc===id){ editLoc=null; clearPointHandles(); syncJobLabels(); renderRecord(); syncMapPanel(); } },
+    onCancel:sh=>{ setPoints(id,sh.points,undefined,true,sh.closed); syncPointHandles(); relock(); if(typeof editLoc!=="undefined"&&editLoc===id){ editLoc=null; clearPointHandles(); syncJobLabels(); renderRecord(); syncMapPanel(); } } }); }
 function shapeLabel(sh){ const n=sh.points.length; return sh.kind==="point"?"point":sh.kind==="line"?`line · ${n} points`:`area · ${n} corners`; }
 function relock(){ if(S.woView&&S.open&&map){ const w=W(S.open); if(w&&pts(w).length) flyWO(w); } }
 function movePoint(id,i){ const w=W(id); if(!w||!map){ toast("The map is not loaded.",true); return; } if(S.tab!=="map") setTab("map"); if(!V.draw) addPoints(id); selMove(i); }
@@ -1757,7 +1791,7 @@ function selectPoint(i,flyTo){ const id=S.open; const w=W(id); if(!w||!map) retu
 /* numbered handles for the open record's points while nothing is being edited; click → selector with that point selected */
 const PTH=[];
 function clearPointHandles(){ if(PTH.length){ killAll(PTH); PTH.length=0; mapRedraw(); } }
-function syncPointHandles(){ clearPointHandles(); if(!map||!lib||!S.open||V.draw) return; const w=W(S.open); if(!w) return; const P=pts(w); if(P.length<1) { if(!V.placing) resetMode(); return; }
+function syncPointHandles(){ clearPointHandles(); if(!map||!lib||!S.open||V.draw||editLoc!==S.open) return; const w=W(S.open); if(!w) return; const P=pts(w); if(P.length<1) { if(!V.placing) resetMode(); return; }
   const mode=surf(P); P.forEach((p,i)=>{ const focus=(typeof hoverPin!=="undefined"&&hoverPin)||(S.note||null); const m=mk3("mi",{ position:atSurf(p,P.length===1?(p.alt||0)+0.5:0.8), altitudeMode:mode, tpl:pinTemplate(focus?"#8A93AD":"#FF6A00",focus?0.7:0.85,undefined,i+1).tpl }); m.__onClick=e=>{ if(V.draw||V.placing) return; e.stopPropagation?.(); selectPoint(i); }; PTH.push(m); });
   if(!V.placing) resetMode(); }
 
@@ -1782,9 +1816,9 @@ function assetEditor(a,anchor,opts={}){
    Google's gesture controller has no "fixed pivot" mode, so in this view a transparent layer over the map takes the
    input itself: drag → heading/tilt, wheel/pinch → range, centre never changes. Lifted while placing or drawing points. */
 let LOCK=null, flying=false, flyT=null;
-function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; S.legendOff.delete(w.statusId); applyLegendTo(w); renderLegend(); S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels();
+function enterWOView(id){ const w=W(id); if(!w) return; const wasHidden=S.tab!=="map"; if(!mapRows().some(j=>j.id===id)){MF.scope="all";MF.area="";MF.focus=null;S.q="";$("#q").value="";} S.legendOff.delete(w.statusId); applyLegendTo(w); renderLegend(); S.woView=true; document.body.classList.add("wo-view"); setTab("map"); openWO(id); woMode(); orbitSync(); syncPhotoOverlays(); syncPinOverlays(); syncJobLabels(); renderMapJobs(); $("#reg").classList.add("open");
   // fly only after the map has its final size: an animation started on a hidden or resizing map is dropped by the engine
-  if(map){ requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{ if(S.woView&&S.open===w.id){ if(pts(w).length) flyWO(w); else applyCameraLimits(); } }, (isMobile()||wasHidden)?320:60))); } }
+  if(map){ requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{ if(S.woView&&S.open===w.id){ if(pts(w).length) flyWO(w); else fitMapJobs(); } }, (isMobile()||wasHidden)?320:60))); } }
 function exitWOView(){ S.woView=false; LOCK=null; S.note=null; document.body.classList.remove("note-view"); leaveJobScene(); syncJobLabels(); document.body.classList.remove("wo-view"); closePeek(); resetMode(); orbitSync(); }   // camera stays where it is; the Site button reframes on demand
 function woMode(){ const w=W(S.open); if(!w) return;
   if(S.note&&typeof N==="function"&&N(S.note)){ const n=N(S.note); const par=n.parent?N(n.parent):null; const sibs=(typeof childrenOf==="function"?childrenOf(n.parent||null):[]).length;
@@ -2032,7 +2066,7 @@ async function savePoseCorrection(woId,p,patch){
 /* ---------- photo icons on the model (V78) ---------- */
 function camSvg(fill,scale=1){ const NS="http://www.w3.org/2000/svg", s=document.createElementNS(NS,"svg"); s.setAttribute("viewBox","0 0 24 24"); s.setAttribute("width",String(Math.round(22*scale))); s.setAttribute("height",String(Math.round(22*scale))); s.innerHTML=`<circle cx="12" cy="12" r="11" fill="${fill}" stroke="#0B0F1F" stroke-width="1.5"/><path d="M7 9h2.2l1-1.6h3.6L14.8 9H17a1 1 0 011 1v6a1 1 0 01-1 1H7a1 1 0 01-1-1v-6a1 1 0 011-1z" fill="#0B0F1F"/><circle cx="12" cy="13" r="2.2" fill="${fill}"/>`; return s; }
 function syncPhotoOverlays(){
-  if(!map||!lib) return; if(!S.woView||!S.open){ clearPhotoOverlays(); return; }   // a job's photos and notes show only inside that job's view
+  if(!map||!lib) return; if(!S.woView||!S.open||!mapEditorOpen()){ clearPhotoOverlays(); return; }   // a job's photos and notes show only inside that job's view
   const want=new Set(PH.filter(hasPos).map(p=>p.id));
   Object.keys(PHOV).forEach(id=>{ if(!want.has(id)){ killEl(PHOV[id].m); killAll(PHOV[id].sight); delete PHOV[id]; mapRedraw(); } });
   PH.filter(hasPos).forEach(p=>{ const e=effPose(p); const sig=JSON.stringify(e)+(PHOV[p.id]?.hl?"#":""); const o=PHOV[p.id]; if(o&&o.sig===sig) return; if(o){ killEl(o.m); killAll(o.sight); }
@@ -2230,7 +2264,7 @@ function pinTileSVG(no){ return `<svg viewBox="0 0 26 36" class="pintile"><path 
 function noteAnchor(k){ const P=notePts(k); if(P.length===1) return P[0]; const c=centroid(P); const g=P.map(x=>x.ground).filter(x=>x!=null); return { ...c, ground:g.length?g.reduce((a,b)=>a+b,0)/g.length:undefined }; }
 function clearPinOverlays(){ const n=Object.keys(PINOV).length; Object.values(PINOV).forEach(a=>killAll(a)); for(const k in PINOV) delete PINOV[k]; if(n) mapRedraw(); }
 function focusPinNote(id,nid){ openNote(nid); }
-function syncPinOverlays(){ if(!map||!lib||!S.open||!S.woView){ clearPinOverlays(); return; } const w=W(S.open); if(!w){ clearPinOverlays(); return; }
+function syncPinOverlays(){ if(!map||!lib||!S.open||!S.woView||!mapEditorOpen()){ clearPinOverlays(); return; } const w=W(S.open); if(!w){ clearPinOverlays(); return; }
   /* hover: only the hovered note stays lit, everything else (parents included) greys. Inside a note view without a hover: the
      open note plus its ancestors and descendants stay visible for context, the rest greys. */
   const openSet=hoverPin?new Set([hoverPin]):S.note?new Set([S.note,...descendants(S.note).map(x=>x.id),...ancestors(S.note).map(x=>x.id)]):null;
@@ -2500,6 +2534,115 @@ async function seedDemoLocations(){
     await DB.update(WO_COL+"/"+w.id,{location:{points:sample.points,height:0,closed:sample.closed,demo:true}});
   }
   await DB.set("demo/mapLocations",{version:1});
+}
+
+/* A shared filter drives the map and its list. Clusters are temporary views, not stored records. */
+const MF={scope:"active",area:"",focus:null,collapsed:new Set()};
+function mapArea(w){ return asset(w.values?.asset?.[0])?.area||"Unassigned area"; }
+function mapToday(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function mapAttention(w){ return !isDone(w)&&(w.statusId==="on_hold"||!!(w.values?.deadline?.start&&w.values.deadline.start<mapToday())); }
+function mapScopeMatch(w,scope){ return scope==="all"||scope==="attention"&&mapAttention(w)||scope==="mine"&&isOpen(w)&&(w.values?.owner||[]).some(p=>p.uid===S.user?.uid)||scope==="active"&&isOpen(w); }
+function mapRows(){ return filtered().filter(w=>mapScopeMatch(w,MF.scope)&&(!MF.area||mapArea(w)===MF.area)&&(!MF.focus||MF.focus.includes(w.id))); }
+function mapDistance(a,b){ return Math.hypot((a.lat-b.lat)*111320,(a.lng-b.lng)*111320*Math.cos((a.lat+b.lat)*Math.PI/360)); }
+function groupMapJobs(rows,range){
+  const radius=range>2000?380:range>1100?200:range>550?95:range>250?42:18;
+  const groups=[];
+  rows.filter(w=>pts(w).length).sort((a,b)=>a.id.localeCompare(b.id)).forEach(w=>{
+    const a=locAnchor(w); let g=groups.find(g=>mapArea(g.jobs[0])===mapArea(w)&&mapDistance(g.anchor,a)<=radius&&g.jobs.every(j=>mapDistance(locAnchor(j),a)<=radius*1.6));
+    if(!g){g={jobs:[],anchor:a};groups.push(g);}g.jobs.push(w);g.anchor=centroid(g.jobs.map(locAnchor));
+  });
+  return groups;
+}
+function mapClusterName(jobs){const names=[...new Set(jobs.map(mapArea))];return names.length===1?names[0]:"Nearby jobs";}
+function clusterTemplate(jobs){
+  const t=document.createElement("template"), label=mapClusterName(jobs), width=Math.max(132,Math.min(210,58+label.length*6.2));
+  t.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="57" viewBox="0 0 ${width} 57"><path d="M${width/2-6} 42l6 8 6-8" fill="#fff" stroke="#307257" stroke-width="2"/><rect x="2" y="2" width="${width-4}" height="42" rx="21" fill="#fff" stroke="#307257" stroke-width="2"/><circle cx="24" cy="23" r="15" fill="#307257"/><text x="24" y="28" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#fff">${jobs.length}</text><text x="47" y="27" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#253b2c">${P(label)}</text></svg>`;
+  return t;
+}
+function mapEditorOpen(){ return S.tab==="map"&&!!S.open&&!!(editLoc===S.open||S.note||S.creating||V.draw||V.placing); }
+function syncMapPanel(){
+  const editor=mapEditorOpen(); document.body.classList.toggle("map-detail-editor",editor);
+  if(S.tab==="map") $("#peek").inert=!editor;
+  const head=$("#map-workspace-head");if(!head||!S.schema)return;
+  $("#map-total").textContent=`${live().length} jobs on site`;
+  head.querySelectorAll("[data-mscope]").forEach(b=>{b.setAttribute("aria-pressed",b.dataset.mscope===MF.scope);b.querySelector("b").textContent=live().filter(w=>mapScopeMatch(w,b.dataset.mscope)).length;});
+  const input=$("#map-search");if(document.activeElement!==input)input.value=S.q;
+  const areas=[...new Set(live().map(mapArea))].sort(),sel=$("#map-area-filter"),opts=`<option value="">All work areas</option>`+areas.map(a=>`<option value="${P(a)}">${P(a)}</option>`).join("");
+  if(sel.innerHTML!==opts)sel.innerHTML=opts;sel.value=MF.area;
+  const rows=mapRows(),mapped=rows.filter(w=>pts(w).length).length;
+  $("#map-results").textContent=`${rows.length} job${rows.length===1?"":"s"} shown · ${mapped} on map`;
+  $("#map-focus").hidden=!MF.focus;
+  $("#map-focus-text").textContent=MF.focus?`${rows.length} nearby jobs`:"";
+  $("#map-clear").hidden=MF.scope==="active"&&!MF.area&&!MF.focus&&!S.q;
+  $("#map-hidden").textContent=MF.scope==="active"?`${live().filter(isDone).length} completed jobs hidden`:MF.scope==="attention"?"On hold or past their due date":MF.scope==="mine"?"Your active jobs":"Includes completed work";
+  const w=S.woView&&S.open?W(S.open):null,el=$("#map-selected");el.hidden=!w;
+  if(w)el.innerHTML=`<div class="map-selection-top"><span>Selected · ${P(w.id)}</span><button class="btn ghost" data-map-close aria-label="Close selected job">×</button></div><h3>${P(w.title||"Untitled")}</h3><div class="map-selection-meta">${statusPill(w)}<span>${P((w.values?.owner||[]).map(p=>p.name.split(" ")[0]).join(", ")||"Unassigned")}</span><span>${w.values?.deadline?.start?P(fmtDate(w.values.deadline.start)):"No due date"}</span></div><p>${pts(w).length?"Only this job’s work area is highlighted.":"No location yet. Add one to place this job on the map."}</p><div class="map-selection-actions"><button class="btn primary" data-map-open>Open job ↗</button><button class="btn" data-map-edit>${pts(w).length?"Edit location":"Add location"}</button></div>`;
+  const scopeLabel=MF.focus?"Nearby jobs":MF.area||"Site overview";
+  $("#map-overview-title").textContent=scopeLabel;
+  $("#map-overview-help").textContent=w?`${w.id} selected · other jobs stay compact`:"Open a group, then choose a job to see its work area.";
+  $("#map-fit").disabled=!map||!mapped;
+}
+function mapJobRow(w){const owner=(w.values?.owner||[]).map(p=>p.name.split(" ")[0]).join(", ")||"Unassigned",date=w.values?.deadline?.start;return `<button class="map-job-row ${S.open===w.id?"selected":""}" data-wo="${P(w.id)}" aria-pressed="${S.open===w.id}"><span class="map-row-top"><span class="map-row-id">${P(w.id)}</span>${statusPill(w)}</span><strong>${P(w.title||"Untitled")}</strong><span class="map-row-meta"><span>${P(owner)}</span><span class="${mapAttention(w)?"attention":""}">${date?P(fmtDate(date)):"No due date"}</span>${!pts(w).length?`<span class="unmapped-job">No location</span>`:""}</span></button>`;}
+function renderMapJobs(){
+  const rows=mapRows(),mapped=rows.filter(w=>pts(w).length),unmapped=rows.filter(w=>!pts(w).length),areas=[...new Set(mapped.map(mapArea))].sort();
+  $("#tree").innerHTML=areas.map(a=>{const ws=mapped.filter(w=>mapArea(w)===a),closed=MF.collapsed.has(a);return `<section class="map-job-group"><div class="map-group-heading"><button data-map-collapse="${P(a)}" aria-expanded="${!closed}">${closed?"▸":"▾"} ${P(a)} <b>${ws.length}</b></button><button data-map-area="${P(a)}" aria-label="Focus ${P(a)}" title="Show this area on the map">↗</button></div>${closed?"":ws.sort((a,b)=>Number(mapAttention(b))-Number(mapAttention(a))||(a.values?.deadline?.start||"9999").localeCompare(b.values?.deadline?.start||"9999")).map(mapJobRow).join("")}</section>`;}).join("")+(unmapped.length?`<section class="map-job-group"><div class="map-group-heading"><span>Not placed on map <b>${unmapped.length}</b></span></div>${unmapped.map(mapJobRow).join("")}</section>`:"")||`<div class="map-empty"><h3>No jobs match</h3><p>Try another view or clear your filters.</p><button class="btn" data-map-reset>Clear filters</button></div>`;
+  syncMapPanel();syncOverlays();
+}
+function fitMapJobs(rows=mapRows()){
+  if(!map)return;const points=rows.flatMap(pts);if(!points.length){applyCameraLimits();return;}
+  const a=centroid(points),e=extentM(bbox(points)),span=Math.max(e.ns,e.ew),n=rows.filter(w=>pts(w).length).length;
+  fly({center:{...a,altitude:GROUND_FALLBACK},range:Math.max(n===1?240:380,span*2.5),tilt:38,heading:-15},1000);
+}
+function updateMapFilters(fit=true){
+  if(S.open&&(!mapRows().some(w=>w.id===S.open)))closePeek();
+  renderAll();if(fit)fitMapJobs();
+}
+function resetMapFilters(){MF.scope="active";MF.area="";MF.focus=null;S.q="";$("#q").value="";closePeek();updateMapFilters();}
+function focusMapGroup(jobs){closePeek();MF.focus=jobs.map(w=>w.id);MF.collapsed.clear();renderAll();fitMapJobs(jobs);$("#reg").classList.add("open");}
+$("#map-workspace-head").addEventListener("click",e=>{const b=e.target.closest("[data-mscope]");if(b){MF.scope=b.dataset.mscope;MF.focus=null;updateMapFilters();}if(e.target.closest("#map-unfocus")){MF.focus=null;updateMapFilters();}if(e.target.closest("#map-clear"))resetMapFilters();});
+$("#map-area-filter").onchange=e=>{MF.area=e.target.value;MF.focus=null;updateMapFilters();};
+$("#map-search").oninput=e=>{S.q=e.target.value;$("#q").value=S.q;MF.focus=null;updateMapFilters(false);};
+$("#map-fit").onclick=()=>fitMapJobs();
+$("#map-overview").onclick=()=>{closePeek();MF.focus=null;MF.area="";renderAll();fitMapJobs();};
+$("#map-new-job").onclick=()=>startCreate();
+$("#map-selected").onclick=e=>{if(e.target.closest("[data-map-close]")){closePeek();renderAll();}if(e.target.closest("[data-map-open]")&&S.open)openJobPage(S.open);if(e.target.closest("[data-map-edit]")&&S.open){editLoc=S.open;addPoints(S.open);renderRecord();syncMapPanel();}};
+$("#tree").addEventListener("click",e=>{const c=e.target.closest("[data-map-collapse]"),a=e.target.closest("[data-map-area]");if(c){const n=c.dataset.mapCollapse;MF.collapsed.has(n)?MF.collapsed.delete(n):MF.collapsed.add(n);renderMapJobs();}if(a){MF.area=a.dataset.mapArea;MF.focus=null;closePeek();updateMapFilters();}if(e.target.closest("[data-map-reset]"))resetMapFilters();});
+
+/* Add fifteen examples once, bringing a fresh demo to twenty jobs. Never overwrite user records. */
+async function seedBusySite(){
+  if(await DB.get("demo/busySite"))return;
+  const schema=await DB.get("workspace/schema"),members=await DB.list("workspace/main/members"),existing=await DB.list(WO_COL);
+  const person=i=>members.find(m=>m.uid===["mock-admin","alex","sam"][i])||members[i]||{uid:"mock-admin",name:"Nikita",email:ADMIN_EMAIL};
+  const assets=[{tag:"STK-02",name:"Process exhaust stack",area:"Ironmaking"},{tag:"DUCT-04",name:"Gas duct",area:"Ironmaking"},{tag:"TK-205",name:"Service water tank",area:"Utilities"},{tag:"PIPE-07",name:"Cooling water header",area:"Utilities"},{tag:"CV-14",name:"Conveyor gallery",area:"Materials handling"},{tag:"HOP-03",name:"Transfer hopper",area:"Materials handling"},{tag:"COKE-01",name:"Coke battery",area:"Coke operations"}];
+  for(const a of assets)if(!await DB.get(AS_COL+"/"+a.tag))await DB.set(AS_COL+"/"+a.tag,a);
+  const centres={iron:{lat:43.2752,lng:-79.8024},utility:{lat:43.2718,lng:-79.8050},materials:{lat:43.2685,lng:-79.8050},coke:{lat:43.2638,lng:-79.8060}};
+  const rows=[
+    ["iron","STK-02","Exhaust stack · upper shell survey","outstanding",0,3,-60,55,"area"],
+    ["iron","DUCT-04","Gas duct · corrosion check","on_hold",1,-2,75,30,"line"],
+    ["iron","STK-01","North stack · access review","outstanding",2,1,-40,-100,"point"],
+    ["iron","STK-02","Exhaust stack · coating photos","completed",1,-4,100,-80,"point"],
+    ["utility","TK-205","Service water tank · roof inspection","in_progress",0,0,75,35,"area"],
+    ["utility","PIPE-07","Cooling water header · supports","outstanding",2,4,-65,70,"line"],
+    ["utility","TK-204","Cooling water tank · nozzle review","on_hold",0,-1,60,-60,"point"],
+    ["utility","PIPE-07","Cooling water header · baseline","completed",1,-3,-55,-60,"line"],
+    ["materials","CV-14","Conveyor gallery · connection survey","in_progress",1,1,90,35,"line"],
+    ["materials","HOP-03","Transfer hopper · shell readings","outstanding",0,5,-55,-55,"area"],
+    ["materials","CV-12","Conveyor support · coating check","outstanding",2,6,-65,80,"point"],
+    ["materials","CV-14","Conveyor gallery · follow-up photos","on_hold",1,3,80,-100,"point"],
+    ["coke","COKE-01","Coke battery · exhaust duct survey","outstanding",0,2,-50,40,"line"],
+    ["coke","COKE-01","Coke battery · platform connections","in_progress",2,0,65,15,"area"],
+    ["coke","COKE-01","Coke battery · access planning","draft",1,8,20,-80,"point"]
+  ];
+  for(let i=0;i<rows.length;i++){
+    const demoId="busy-site-"+i;if(existing.some(w=>w.demoId===demoId))continue;
+    const [zone,tag,title,statusId,owner,days,dx,dy,kind]=rows[i],c=centres[zone],a=offset(c.lat,c.lng,dx,dy);
+    const points=kind==="area"?[[-18,-16],[18,-16],[18,16],[-18,16]].map(([x,y])=>offset(a.lat,a.lng,x,y)):kind==="line"?[offset(a.lat,a.lng,-20,-18),offset(a.lat,a.lng,20,18)]:[a];
+    const seq=await DB.nextSeq(),id=`J-${String(new Date().getFullYear()).slice(-2)}-${String(seq).padStart(3,"0")}`;
+    if(await DB.get(WO_COL+"/"+id))throw new Error("Demo job counter conflict; no existing job was replaced.");
+    const d=new Date();d.setDate(d.getDate()+days);const date=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,time=now(),opt=schema.props.find(p=>p.id==="worktype")?.options.find(o=>o.name==="Visual");
+    await DB.set(WO_COL+"/"+id,{seq,demoId,title,statusId,scope:`Inspect the agreed locations on ${title.split(" · ")[0].toLowerCase()}. Record observations and attach photos. Confirm the scope and access window with the site team.`,values:{asset:[tag],owner:[person(owner)],deadline:{start:date,end:null},worktype:opt?[opt.id]:[]},location:{points,height:0,closed:kind==="area",demo:true},created:time,createdBy:person(0),edited:time,editedBy:person(0),trashed:false,draft:false,completedAt:statusId==="completed"?time:null});
+  }
+  await DB.set("demo/busySite",{version:1});
 }
 
 boot().catch(e=>{showGate("loading","The demo could not open. Please allow browser storage and reload.");console.error(e);});
